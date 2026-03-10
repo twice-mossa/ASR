@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+node_modules/
+dist/
+.DS_Store
+Thumbs.db
+*.sqlite3
+*.db
+coverage/
+.pytest_cache/
+.idea/
+.vscode/
