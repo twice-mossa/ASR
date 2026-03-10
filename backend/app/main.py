@@ -4,23 +4,30 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import router
 
 
+# Initialize FastAPI application
 app = FastAPI(
     title="ASR Meeting Assistant",
-    description="Meeting transcription, summary, search and playback backend",
+    description="Backend for Meeting transcription, summary, and action item extraction.",
     version="0.1.0",
 )
 
+# CORS Configuration
+# Allow all origins, methods, and headers for development convenience
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # Allow all origins
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"],  # Allow all HTTP methods (GET, POST, etc.)
+    allow_headers=["*"],  # Allow all headers
 )
 
+# Register API Router
 app.include_router(router)
 
 
 @app.get("/health")
 def health_check() -> dict[str, str]:
+    """
+    Simple health check to verify the service is running.
+    """
     return {"status": "ok"}

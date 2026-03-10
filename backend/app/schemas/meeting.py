@@ -14,7 +14,11 @@ class TranscriptResponse(BaseModel):
     segments: list[TranscriptSegment]
 
 
+class SummaryRequest(BaseModel):
+    transcribed_text: str
+
+
 class MeetingSummaryResponse(BaseModel):
     summary: str
     keywords: list[str]
-    action_items: list[str]
+    todos: list[str]
