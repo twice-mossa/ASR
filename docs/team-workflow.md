@@ -31,7 +31,28 @@
 
 每个人都不要直接改 `main`，平时从 `dev` 拉自己的 `feature/*` 分支开发。
 
-## 三、每日协作流程
+## 三、GitHub 初始化步骤
+
+1. 由队长在 GitHub 上新建一个空仓库，例如 `asr-meeting-assistant`
+2. 不要勾选自动生成 `README`、`.gitignore` 或 license，保持空仓库
+3. 在本地项目根目录执行：
+
+```powershell
+git checkout main
+git remote add origin https://github.com/你的用户名/asr-meeting-assistant.git
+git push -u origin main
+git checkout dev
+git push -u origin dev
+```
+
+4. 到 GitHub 仓库页面，把默认分支改成 `dev`
+5. 在 GitHub 仓库 `Settings -> Collaborators` 中邀请另外两名队员
+6. 仓库保护建议：
+   - `main` 设为保护分支，不允许直接 push
+   - `dev` 尽量通过 Pull Request 合并
+   - 合并前至少一人查看代码
+
+## 四、每日协作流程
 
 1. 上班前先拉最新代码
 
@@ -58,7 +79,7 @@ git push -u origin feature/your-task-name
 
 5. 另外两人至少一人看过再合并
 
-## 四、提交信息规范
+## 五、提交信息规范
 
 - `feat:` 新功能
 - `fix:` 修复问题
@@ -74,7 +95,7 @@ fix: handle empty upload file
 docs: add team workflow
 ```
 
-## 五、三周建议节奏
+## 六、三周建议节奏
 
 ### 第 1 周
 
@@ -94,9 +115,33 @@ docs: add team workflow
 - 修复 Bug
 - 准备答辩演示和文档
 
-## 六、避免冲突的建议
+## 七、避免冲突的建议
 
 - 一个人一个功能分支
 - 同一个文件不要三个人同时大改
 - 改公共接口前先在群里确认
 - 每天晚上一轮同步：今天做了什么，明天做什么，卡在哪里
+
+## 八、三人第一天就按这个做
+
+### 队长
+
+- 创建 GitHub 仓库
+- 推送 `main` 和 `dev`
+- 邀请成员
+- 建立一个项目群，统一同步任务
+
+### 成员 A
+
+- 从 `dev` 拉 `feature/backend-transcription`
+- 先把 `/api/transcribe` 接成真实逻辑
+
+### 成员 B
+
+- 从 `dev` 拉 `feature/frontend-upload`
+- 先做上传页面和结果展示页面
+
+### 成员 C
+
+- 从 `dev` 拉 `feature/testing-docs`
+- 准备测试音频、记录接口格式、维护联调文档
