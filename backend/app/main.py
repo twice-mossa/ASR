@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router
+from app.services.auth_service import init_auth_db
 
 
 # Initialize FastAPI application
@@ -23,6 +24,11 @@ app.add_middleware(
 
 # Register API Router
 app.include_router(router)
+
+
+@app.on_event("startup")
+def startup() -> None:
+    init_auth_db()
 
 
 @app.get("/health")

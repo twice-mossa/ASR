@@ -1,10 +1,12 @@
-from fastapi import APIRouter, File, UploadFile, HTTPException
+from fastapi import APIRouter, File, Header, UploadFile
 
+from app.schemas.auth import AuthResponse, LoginRequest, LogoutResponse, RegisterRequest, UserProfile
 from app.schemas.meeting import (
-    MeetingSummaryResponse, 
-    TranscriptResponse, 
-    SummaryRequest
+    MeetingSummaryResponse,
+    SummaryRequest,
+    TranscriptResponse,
 )
+from app.services.auth_service import get_current_user, login_user, logout_user, register_user
 from app.services.minimax_service import build_summary
 from app.services.transcription_service import transcribe_audio
 
@@ -17,6 +19,26 @@ def ping() -> dict[str, str]:
     Health check endpoint.
     """
     return {"message": "pong"}
+
+
+@router.post("/auth/register", response_model=AuthResponse)
+def create_account(payload: RegisterRequest) -> AuthResponse:
+    return register_user(payload)
+
+
+@router.post("/auth/login", response_model=AuthResponse)
+def login(payload: LoginRequest) -> AuthResponse:
+    return login_user(payload)
+
+
+@router.get("/auth/me", response_model=UserProfile)
+def read_current_user(authorization: str | None = Header(default=None)) -> UserProfile:
+    return get_current_user(authorization)
+
+
+@router.post("/auth/logout", response_model=LogoutResponse)
+def logout(authorization: str | None = Header(default=None)) -> LogoutResponse:
+    return logout_user(authorization)
 
 
 @router.post("/transcribe", response_model=TranscriptResponse)
