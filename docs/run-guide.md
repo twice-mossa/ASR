@@ -42,7 +42,7 @@ docker compose ps
 
 ```env
 MINIMAX_API_KEY=
-MINIMAX_BASE_URL=https://api.minimax.chat
+MINIMAX_BASE_URL=https://api.minimaxi.com/v1
 WHISPER_MODEL_SIZE=tiny
 DATABASE_URL=mysql+mysqlconnector://asr_user:asr_password@127.0.0.1:3307/asr_meeting
 ```
