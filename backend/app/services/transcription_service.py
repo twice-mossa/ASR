@@ -82,7 +82,7 @@ async def transcribe_audio(file: UploadFile) -> TranscriptResponse:
         logger.error(f"Failed to create temp file: {e}")
         raise HTTPException(status_code=500, detail="Failed to save audio file")
 
-    async def _run(path: str) -> tuple[str, str, list[TranscriptSegment]]:
+    def _run(path: str) -> tuple[str, str, list[TranscriptSegment]]:
         """Run blocking transcription in a thread."""
         model = _whisper_model
         segments_out: list[TranscriptSegment] = []

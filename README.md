@@ -8,7 +8,7 @@
 - 文本摘要与关键词提取：`MiniMax API`
 - 后端：`FastAPI`
 - 前端：`Vue 3`
-- 存储：`SQLite`
+- 存储：`MySQL`
 
 ## 目录结构
 
@@ -48,6 +48,13 @@ npm install
 npm run dev
 ```
 
+### 4. 启动 MySQL
+
+```powershell
+cd D:\ASR
+docker compose up -d mysql
+```
+
 ## 当前阶段目标
 
 第一阶段先完成四个核心功能：
@@ -58,3 +65,8 @@ npm run dev
 4. 关键词搜索与时间戳回放
 
 详细协作流程见 [docs/team-workflow.md](/D:/ASR/docs/team-workflow.md)。
+
+## 运行与路演
+
+- 使用说明见 [docs/run-guide.md](/D:/ASR/docs/run-guide.md)
+- 路演建议见 [docs/demo-guide.md](/D:/ASR/docs/demo-guide.md)

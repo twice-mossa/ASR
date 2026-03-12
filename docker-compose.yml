@@ -1,0 +1,25 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: asr-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root123456
+      MYSQL_DATABASE: asr_meeting
+      MYSQL_USER: asr_user
+      MYSQL_PASSWORD: asr_password
+    ports:
+      - "3306:3306"
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -proot123456 --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+volumes:
+  mysql_data:

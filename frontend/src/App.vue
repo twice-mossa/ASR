@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from "vue";
 
 import { fetchCurrentUser, loginUser, logoutUser, registerUser } from "./api/auth";
+import { summarizeMeeting, transcribeMeeting } from "./api/meeting";
 
 function safeParse(raw) {
   if (!raw) {
@@ -16,7 +17,11 @@ function safeParse(raw) {
 }
 
 const activeTab = ref("login");
-const loading = ref(false);
+const authLoading = ref(false);
+const workLoading = reactive({
+  transcribe: false,
+  summary: false,
+});
 const message = reactive({
   type: "success",
   text: "",
@@ -25,27 +30,32 @@ const session = reactive({
   token: localStorage.getItem("auth_token") || "",
   user: safeParse(localStorage.getItem("auth_user")),
 });
-
 const loginForm = reactive({
   identifier: "",
   password: "",
 });
-
 const registerForm = reactive({
   username: "",
   email: "",
   password: "",
   confirmPassword: "",
 });
+const workspace = reactive({
+  file: null,
+  fileName: "",
+  transcript: null,
+  summary: null,
+});
 
 const projectSteps = [
-  "注册账号并保存登录状态",
-  "上传会议音频并执行转写",
-  "生成会议纪要、关键词和待办事项",
-  "后续接入关键词搜索与语音回放",
+  "登录后上传会议音频",
+  "调用 faster-whisper 生成带时间戳的转写结果",
+  "调用 MiniMax 或兜底逻辑生成纪要、关键词和待办事项",
+  "把这条链路作为明天路演的主流程",
 ];
 
 const isAuthenticated = computed(() => Boolean(session.token && session.user));
+const canGenerateSummary = computed(() => Boolean(workspace.transcript?.text));
 
 function setMessage(text, type = "success") {
   message.text = text;
@@ -74,6 +84,22 @@ function resolveError(error, fallback) {
   return error?.response?.data?.detail || fallback;
 }
 
+function resetWorkspace() {
+  workspace.file = null;
+  workspace.fileName = "";
+  workspace.transcript = null;
+  workspace.summary = null;
+}
+
+function handleFileSelect(event) {
+  const [file] = event.target.files || [];
+  workspace.file = file || null;
+  workspace.fileName = file?.name || "";
+  workspace.transcript = null;
+  workspace.summary = null;
+  clearMessage();
+}
+
 async function handleRegister() {
   clearMessage();
 
@@ -82,7 +108,7 @@ async function handleRegister() {
     return;
   }
 
-  loading.value = true;
+  authLoading.value = true;
   try {
     const payload = await registerUser({
       username: registerForm.username.trim(),
@@ -98,13 +124,13 @@ async function handleRegister() {
   } catch (error) {
     setMessage(resolveError(error, "注册失败，请稍后再试"), "error");
   } finally {
-    loading.value = false;
+    authLoading.value = false;
   }
 }
 
 async function handleLogin() {
   clearMessage();
-  loading.value = true;
+  authLoading.value = true;
   try {
     const payload = await loginUser({
       identifier: loginForm.identifier.trim(),
@@ -117,21 +143,61 @@ async function handleLogin() {
   } catch (error) {
     setMessage(resolveError(error, "登录失败，请稍后再试"), "error");
   } finally {
-    loading.value = false;
+    authLoading.value = false;
   }
 }
 
 async function handleLogout() {
   clearMessage();
-  loading.value = true;
+  authLoading.value = true;
   try {
     await logoutUser(session.token);
   } catch {
     // Ignore logout failures and clear local state anyway.
   } finally {
     clearSession();
-    loading.value = false;
+    resetWorkspace();
+    authLoading.value = false;
     setMessage("已退出登录");
+  }
+}
+
+async function handleTranscribe() {
+  if (!workspace.file) {
+    setMessage("请先选择音频文件", "warning");
+    return;
+  }
+
+  clearMessage();
+  workLoading.transcribe = true;
+  workspace.transcript = null;
+  workspace.summary = null;
+
+  try {
+    workspace.transcript = await transcribeMeeting(workspace.file);
+    setMessage("音频转写完成");
+  } catch (error) {
+    setMessage(resolveError(error, "转写失败，请检查音频格式或模型环境"), "error");
+  } finally {
+    workLoading.transcribe = false;
+  }
+}
+
+async function handleSummary() {
+  if (!workspace.transcript?.text) {
+    setMessage("请先完成音频转写", "warning");
+    return;
+  }
+
+  clearMessage();
+  workLoading.summary = true;
+  try {
+    workspace.summary = await summarizeMeeting(workspace.transcript.text);
+    setMessage("会议纪要生成完成");
+  } catch (error) {
+    setMessage(resolveError(error, "摘要生成失败，请检查 API 配置"), "error");
+  } finally {
+    workLoading.summary = false;
   }
 }
 
@@ -156,13 +222,13 @@ onMounted(async () => {
         <p class="eyebrow">ASR Meeting Assistant</p>
         <h1>智能会议助手</h1>
         <p class="intro">
-          先完成账号注册和登录，再逐步接入音频转写、会议纪要、关键词搜索与语音回放。
+          今天的目标不是只把页面搭起来，而是让“登录 -> 上传音频 -> 转写 -> 纪要”这条主流程真正能跑通，明天可以直接用于路演。
         </p>
       </div>
 
       <div class="hero-card">
-        <p class="card-label">当前阶段</p>
-        <h2>登录注册已纳入 Sprint 1</h2>
+        <p class="card-label">明日路演主线</p>
+        <h2>建议按这 4 步演示</h2>
         <ol>
           <li v-for="step in projectSteps" :key="step">{{ step }}</li>
         </ol>
@@ -178,7 +244,7 @@ onMounted(async () => {
       :closable="false"
     />
 
-    <section class="card-grid">
+    <section class="card-grid top-grid">
       <article class="card auth-card">
         <template v-if="!isAuthenticated">
           <div class="card-header">
@@ -186,7 +252,7 @@ onMounted(async () => {
               <p class="card-label">账号中心</p>
               <h2>登录 / 注册</h2>
             </div>
-            <span class="pill">基础功能</span>
+            <span class="pill">MySQL 用户体系</span>
           </div>
 
           <el-tabs v-model="activeTab" stretch>
@@ -203,7 +269,7 @@ onMounted(async () => {
                     placeholder="请输入密码"
                   />
                 </el-form-item>
-                <el-button type="primary" :loading="loading" class="submit-button" @click="handleLogin">
+                <el-button type="primary" :loading="authLoading" class="submit-button" @click="handleLogin">
                   登录
                 </el-button>
               </el-form>
@@ -233,7 +299,7 @@ onMounted(async () => {
                     placeholder="请再次输入密码"
                   />
                 </el-form-item>
-                <el-button type="primary" :loading="loading" class="submit-button" @click="handleRegister">
+                <el-button type="primary" :loading="authLoading" class="submit-button" @click="handleRegister">
                   注册并登录
                 </el-button>
               </el-form>
@@ -244,7 +310,7 @@ onMounted(async () => {
         <template v-else>
           <div class="card-header">
             <div>
-              <p class="card-label">欢迎回来</p>
+              <p class="card-label">当前账号</p>
               <h2>{{ session.user.username }}</h2>
             </div>
             <span class="pill success">已登录</span>
@@ -257,21 +323,117 @@ onMounted(async () => {
           </el-descriptions>
 
           <div class="auth-actions">
-            <el-button type="danger" plain :loading="loading" @click="handleLogout">退出登录</el-button>
+            <el-button type="danger" plain :loading="authLoading" @click="handleLogout">退出登录</el-button>
           </div>
         </template>
       </article>
 
       <article class="card">
         <p class="card-label">交付说明</p>
-        <h2>这次实现了什么</h2>
+        <h2>今天补齐的关键能力</h2>
         <ul class="feature-list">
-          <li>后端注册接口，支持用户名与邮箱唯一校验</li>
-          <li>后端登录接口，支持用户名或邮箱登录</li>
-          <li>本地 SQLite 持久化用户数据</li>
-          <li>前端注册、登录、退出与登录态保持</li>
-          <li>Vite 代理配置，开发时可直接调用后端接口</li>
+          <li>MySQL 用户注册、登录、退出与登录态保持</li>
+          <li>前端音频上传并调用转写接口</li>
+          <li>前端根据转写文本生成会议纪要</li>
+          <li>默认支持 MiniMax 摘要，未配置时自动走兜底摘要</li>
+          <li>后端修复了转写线程调用问题，主链路能真正执行</li>
         </ul>
+      </article>
+    </section>
+
+    <section class="card-grid workspace-grid" v-if="isAuthenticated">
+      <article class="card workspace-card">
+        <div class="card-header">
+          <div>
+            <p class="card-label">会议工作台</p>
+            <h2>上传音频并开始处理</h2>
+          </div>
+          <span class="pill">可演示流程</span>
+        </div>
+
+        <label class="file-picker">
+          <span>选择会议音频文件</span>
+          <input type="file" accept=".wav,.mp3,.m4a,.flac" @change="handleFileSelect" />
+        </label>
+
+        <p class="file-name" v-if="workspace.fileName">当前文件：{{ workspace.fileName }}</p>
+        <p class="helper-text" v-else>建议优先使用 `sample-data/audio` 里的短样本做明天的路演。</p>
+
+        <div class="action-row">
+          <el-button type="primary" :loading="workLoading.transcribe" @click="handleTranscribe">
+            1. 开始转写
+          </el-button>
+          <el-button
+            type="success"
+            :disabled="!canGenerateSummary"
+            :loading="workLoading.summary"
+            @click="handleSummary"
+          >
+            2. 生成纪要
+          </el-button>
+          <el-button plain @click="resetWorkspace">重置</el-button>
+        </div>
+
+        <div class="result-block">
+          <div class="result-header">
+            <h3>转写结果</h3>
+            <span v-if="workspace.transcript">语言：{{ workspace.transcript.language || "zh" }}</span>
+          </div>
+
+          <el-empty v-if="!workspace.transcript" description="完成转写后会在这里显示结果" />
+
+          <template v-else>
+            <el-input :model-value="workspace.transcript.text" type="textarea" :rows="8" readonly />
+
+            <div class="segment-list">
+              <div
+                v-for="segment in workspace.transcript.segments"
+                :key="`${segment.start}-${segment.end}`"
+                class="segment-item"
+              >
+                <span class="segment-time">
+                  {{ segment.start.toFixed(1) }}s - {{ segment.end.toFixed(1) }}s
+                </span>
+                <span>{{ segment.text }}</span>
+              </div>
+            </div>
+          </template>
+        </div>
+      </article>
+
+      <article class="card summary-card">
+        <div class="card-header">
+          <div>
+            <p class="card-label">智能纪要</p>
+            <h2>摘要、关键词与待办事项</h2>
+          </div>
+          <span class="pill success">AI 输出</span>
+        </div>
+
+        <el-empty v-if="!workspace.summary" description="生成纪要后会在这里展示内容" />
+
+        <template v-else>
+          <div class="summary-section">
+            <h3>会议摘要</h3>
+            <p>{{ workspace.summary.summary }}</p>
+          </div>
+
+          <div class="summary-section">
+            <h3>关键词</h3>
+            <div class="tag-list">
+              <el-tag v-for="keyword in workspace.summary.keywords" :key="keyword" type="warning" effect="light">
+                {{ keyword }}
+              </el-tag>
+            </div>
+          </div>
+
+          <div class="summary-section">
+            <h3>待办事项</h3>
+            <ul class="todo-list">
+              <li v-for="todo in workspace.summary.todos" :key="todo">{{ todo }}</li>
+            </ul>
+          </div>
+        </template>
       </article>
     </section>
   </main>
@@ -298,10 +460,10 @@ onMounted(async () => {
 }
 
 .hero {
-  max-width: 1080px;
+  max-width: 1180px;
   margin: 0 auto 24px;
   display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.9fr);
+  grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.8fr);
   gap: 20px;
   align-items: stretch;
 }
@@ -321,13 +483,13 @@ h1 {
   font-size: clamp(2.6rem, 5vw, 4.6rem);
 }
 
-h2 {
-  margin: 0 0 16px;
-  font-size: 1.45rem;
+h2,
+h3 {
+  margin: 0;
 }
 
 .intro {
-  max-width: 720px;
+  max-width: 760px;
   margin-top: 16px;
   font-size: 1.05rem;
   line-height: 1.8;
@@ -337,28 +499,35 @@ h2 {
 .card {
   padding: 24px;
   border-radius: 24px;
-  background: rgba(255, 255, 255, 0.82);
+  background: rgba(255, 255, 255, 0.84);
   box-shadow: 0 18px 60px rgba(48, 60, 80, 0.12);
   backdrop-filter: blur(10px);
 }
 
 .hero-card ol {
-  margin: 0;
+  margin: 14px 0 0;
   padding-left: 20px;
   line-height: 1.9;
 }
 
 .status-alert {
-  max-width: 1080px;
+  max-width: 1180px;
   margin: 0 auto 24px;
 }
 
 .card-grid {
-  max-width: 1080px;
-  margin: 0 auto;
+  max-width: 1180px;
+  margin: 0 auto 20px;
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
   gap: 20px;
+}
+
+.top-grid {
+  grid-template-columns: minmax(320px, 0.9fr) minmax(280px, 0.7fr);
+}
+
+.workspace-grid {
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
 }
 
 .card-header {
@@ -366,11 +535,7 @@ h2 {
   justify-content: space-between;
   gap: 16px;
   align-items: flex-start;
-  margin-bottom: 8px;
-}
-
-.auth-card {
-  min-height: 520px;
+  margin-bottom: 16px;
 }
 
 .pill {
@@ -400,15 +565,97 @@ h2 {
   justify-content: flex-end;
 }
 
-.feature-list {
+.feature-list,
+.todo-list {
   margin: 0;
   padding-left: 20px;
   line-height: 1.9;
 }
 
-@media (max-width: 860px) {
+.file-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px;
+  border: 1px dashed #cda861;
+  border-radius: 18px;
+  background: #fff9ed;
+  color: #7f5200;
+  font-weight: 700;
+}
+
+.file-picker input {
+  font-weight: 400;
+}
+
+.file-name,
+.helper-text {
+  margin: 14px 0 0;
+  color: #546173;
+}
+
+.action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.result-block {
+  margin-top: 24px;
+}
+
+.result-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.segment-list {
+  margin-top: 14px;
+  max-height: 280px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.segment-item {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 14px;
+  background: #f7f8fb;
+}
+
+.segment-time {
+  color: #915f00;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.summary-section + .summary-section {
+  margin-top: 22px;
+}
+
+.summary-section p {
+  margin: 10px 0 0;
+  line-height: 1.8;
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+@media (max-width: 980px) {
   .hero,
-  .card-grid {
+  .top-grid,
+  .workspace-grid {
     grid-template-columns: 1fr;
   }
 }

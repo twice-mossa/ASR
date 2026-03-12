@@ -6,3 +6,5 @@ python-multipart==0.0.20
 faster-whisper==1.2.0
 httpx==0.28.1
 pydantic-settings==2.10.1
+SQLAlchemy==2.0.38
+PyMySQL==1.1.1
