@@ -3,6 +3,9 @@ import { computed, onMounted, reactive, ref } from "vue";
 
 import { fetchCurrentUser, loginUser, logoutUser, registerUser } from "./api/auth";
 import { summarizeMeeting, transcribeMeeting } from "./api/meeting";
+import AuthPanel from "./components/AuthPanel.vue";
+import DeliverySummary from "./components/DeliverySummary.vue";
+import PageHero from "./components/PageHero.vue";
 
 function safeParse(raw) {
   if (!raw) {
@@ -52,6 +55,14 @@ const projectSteps = [
   "调用 faster-whisper 生成带时间戳的转写结果",
   "调用 MiniMax 或兜底逻辑生成纪要、关键词和待办事项",
   "把这条链路作为明天路演的主流程",
+];
+
+const deliveryItems = [
+  "MySQL 用户注册、登录、退出与登录态保持",
+  "前端音频上传并调用转写接口",
+  "前端根据转写文本生成会议纪要",
+  "默认支持 MiniMax 摘要，未配置时自动走兜底摘要",
+  "后端修复了转写线程调用问题，主链路能真正执行",
 ];
 
 const isAuthenticated = computed(() => Boolean(session.token && session.user));
@@ -217,23 +228,14 @@ onMounted(async () => {
 
 <template>
   <main class="page-shell">
-    <section class="hero">
-      <div>
-        <p class="eyebrow">ASR Meeting Assistant</p>
-        <h1>智能会议助手</h1>
-        <p class="intro">
-          今天的目标不是只把页面搭起来，而是让“登录 -> 上传音频 -> 转写 -> 纪要”这条主流程真正能跑通，明天可以直接用于路演。
-        </p>
-      </div>
-
-      <div class="hero-card">
-        <p class="card-label">明日路演主线</p>
-        <h2>建议按这 4 步演示</h2>
-        <ol>
-          <li v-for="step in projectSteps" :key="step">{{ step }}</li>
-        </ol>
-      </div>
-    </section>
+    <PageHero
+      eyebrow="ASR Meeting Assistant"
+      title="智能会议助手"
+      intro="今天的目标不是只把页面搭起来，而是让“登录 -> 上传音频 -> 转写 -> 纪要”这条主流程真正能跑通，明天可以直接用于路演。"
+      card-label="明日路演主线"
+      card-title="建议按这 4 步演示"
+      :project-steps="projectSteps"
+    />
 
     <el-alert
       v-if="message.text"
@@ -245,100 +247,24 @@ onMounted(async () => {
     />
 
     <section class="card-grid top-grid">
-      <article class="card auth-card">
-        <template v-if="!isAuthenticated">
-          <div class="card-header">
-            <div>
-              <p class="card-label">账号中心</p>
-              <h2>登录 / 注册</h2>
-            </div>
-            <span class="pill">MySQL 用户体系</span>
-          </div>
+      <AuthPanel
+        v-model:active-tab="activeTab"
+        :loading="authLoading"
+        :is-authenticated="isAuthenticated"
+        :session="session"
+        :login-form="loginForm"
+        :register-form="registerForm"
+        guest-label="账号中心"
+        guest-title="登录 / 注册"
+        guest-pill="MySQL 用户体系"
+        authed-label="当前账号"
+        authed-pill="已登录"
+        @login="handleLogin"
+        @register="handleRegister"
+        @logout="handleLogout"
+      />
 
-          <el-tabs v-model="activeTab" stretch>
-            <el-tab-pane label="登录" name="login">
-              <el-form label-position="top" @submit.prevent="handleLogin">
-                <el-form-item label="用户名或邮箱">
-                  <el-input v-model="loginForm.identifier" placeholder="请输入用户名或邮箱" />
-                </el-form-item>
-                <el-form-item label="密码">
-                  <el-input
-                    v-model="loginForm.password"
-                    type="password"
-                    show-password
-                    placeholder="请输入密码"
-                  />
-                </el-form-item>
-                <el-button type="primary" :loading="authLoading" class="submit-button" @click="handleLogin">
-                  登录
-                </el-button>
-              </el-form>
-            </el-tab-pane>
-
-            <el-tab-pane label="注册" name="register">
-              <el-form label-position="top" @submit.prevent="handleRegister">
-                <el-form-item label="用户名">
-                  <el-input v-model="registerForm.username" placeholder="至少 3 个字符" />
-                </el-form-item>
-                <el-form-item label="邮箱">
-                  <el-input v-model="registerForm.email" placeholder="请输入邮箱" />
-                </el-form-item>
-                <el-form-item label="密码">
-                  <el-input
-                    v-model="registerForm.password"
-                    type="password"
-                    show-password
-                    placeholder="至少 6 位密码"
-                  />
-                </el-form-item>
-                <el-form-item label="确认密码">
-                  <el-input
-                    v-model="registerForm.confirmPassword"
-                    type="password"
-                    show-password
-                    placeholder="请再次输入密码"
-                  />
-                </el-form-item>
-                <el-button type="primary" :loading="authLoading" class="submit-button" @click="handleRegister">
-                  注册并登录
-                </el-button>
-              </el-form>
-            </el-tab-pane>
-          </el-tabs>
-        </template>
-
-        <template v-else>
-          <div class="card-header">
-            <div>
-              <p class="card-label">当前账号</p>
-              <h2>{{ session.user.username }}</h2>
-            </div>
-            <span class="pill success">已登录</span>
-          </div>
-
-          <el-descriptions :column="1" border>
-            <el-descriptions-item label="用户 ID">{{ session.user.id }}</el-descriptions-item>
-            <el-descriptions-item label="用户名">{{ session.user.username }}</el-descriptions-item>
-            <el-descriptions-item label="邮箱">{{ session.user.email }}</el-descriptions-item>
-          </el-descriptions>
-
-          <div class="auth-actions">
-            <el-button type="danger" plain :loading="authLoading" @click="handleLogout">退出登录</el-button>
-          </div>
-        </template>
-      </article>
-
-      <article class="card">
-        <p class="card-label">交付说明</p>
-        <h2>今天补齐的关键能力</h2>
-        <ul class="feature-list">
-          <li>MySQL 用户注册、登录、退出与登录态保持</li>
-          <li>前端音频上传并调用转写接口</li>
-          <li>前端根据转写文本生成会议纪要</li>
-          <li>默认支持 MiniMax 摘要，未配置时自动走兜底摘要</li>
-          <li>后端修复了转写线程调用问题，主链路能真正执行</li>
-        </ul>
-      </article>
+      <DeliverySummary label="交付说明" title="今天补齐的关键能力" :items="deliveryItems" />
     </section>
 
     <section class="card-grid workspace-grid" v-if="isAuthenticated">
@@ -459,57 +385,6 @@ onMounted(async () => {
   padding: 48px 20px 56px;
 }
 
-.hero {
-  max-width: 1180px;
-  margin: 0 auto 24px;
-  display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.8fr);
-  gap: 20px;
-  align-items: stretch;
-}
-
-.eyebrow,
-.card-label {
-  margin: 0 0 10px;
-  color: #915f00;
-  font-size: 0.9rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-h1 {
-  margin: 0;
-  font-size: clamp(2.6rem, 5vw, 4.6rem);
-}
-
-h2,
-h3 {
-  margin: 0;
-}
-
-.intro {
-  max-width: 760px;
-  margin-top: 16px;
-  font-size: 1.05rem;
-  line-height: 1.8;
-}
-
-.hero-card,
-.card {
-  padding: 24px;
-  border-radius: 24px;
-  background: rgba(255, 255, 255, 0.84);
-  box-shadow: 0 18px 60px rgba(48, 60, 80, 0.12);
-  backdrop-filter: blur(10px);
-}
-
-.hero-card ol {
-  margin: 14px 0 0;
-  padding-left: 20px;
-  line-height: 1.9;
-}
-
 .status-alert {
   max-width: 1180px;
   margin: 0 auto 24px;
@@ -530,12 +405,36 @@ h3 {
   grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
 }
 
+.card,
+.workspace-card,
+.summary-card {
+  padding: 24px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.84);
+  box-shadow: 0 18px 60px rgba(48, 60, 80, 0.12);
+  backdrop-filter: blur(10px);
+}
+
 .card-header {
   display: flex;
   justify-content: space-between;
   gap: 16px;
   align-items: flex-start;
   margin-bottom: 16px;
+}
+
+.card-label {
+  margin: 0 0 10px;
+  color: #915f00;
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+h2,
+h3 {
+  margin: 0;
 }
 
 .pill {
@@ -554,18 +453,6 @@ h3 {
   color: #0a6c47;
 }
 
-.submit-button {
-  width: 100%;
-  margin-top: 8px;
-}
-
-.auth-actions {
-  margin-top: 20px;
-  display: flex;
-  justify-content: flex-end;
-}
-
-.feature-list,
 .todo-list {
   margin: 0;
   padding-left: 20px;
@@ -653,7 +540,6 @@ h3 {
 }
 
 @media (max-width: 980px) {
-  .hero,
   .top-grid,
   .workspace-grid {
     grid-template-columns: 1fr;
