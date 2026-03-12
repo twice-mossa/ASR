@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router
-from app.services.auth_service import init_auth_db
+from app.core.database import init_database
 
 
 # Initialize FastAPI application
@@ -28,7 +28,7 @@ app.include_router(router)
 
 @app.on_event("startup")
 def startup() -> None:
-    init_auth_db()
+    init_database()
 
 
 @app.get("/health")

@@ -5,61 +5,21 @@ import hashlib
 import hmac
 import os
 import secrets
-import sqlite3
-import threading
-from pathlib import Path
 
 from fastapi import HTTPException, status
+from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
-from app.core.config import settings
+from app.core.database import SessionLocal
+from app.models import User
 from app.schemas.auth import AuthResponse, LoginRequest, LogoutResponse, RegisterRequest, UserProfile
 
-_DB_LOCK = threading.Lock()
 _SESSIONS: dict[str, UserProfile] = {}
 
 
-def _database_path() -> Path:
-    prefix = "sqlite:///"
-    raw = settings.database_url
-    if raw.startswith(prefix):
-        db_path = Path(raw[len(prefix) :])
-    else:
-        db_path = Path("meeting_assistant.db")
-
-    if not db_path.is_absolute():
-        db_path = (Path(__file__).resolve().parents[2] / db_path).resolve()
-
-    return db_path
-
-
-def _connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(_database_path())
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-def init_auth_db() -> None:
-    db_path = _database_path()
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with _DB_LOCK, _connect() as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT NOT NULL UNIQUE,
-                email TEXT NOT NULL UNIQUE,
-                password_salt TEXT NOT NULL,
-                password_hash TEXT NOT NULL,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
-        conn.commit()
-
-
-def _public_user(row: sqlite3.Row) -> UserProfile:
-    return UserProfile(id=int(row["id"]), username=str(row["username"]), email=str(row["email"]))
+def _public_user(user: User) -> UserProfile:
+    return UserProfile(id=int(user.id), username=str(user.username), email=str(user.email))
 
 
 def _hash_password(password: str, salt: bytes | None = None) -> tuple[str, str]:
@@ -83,66 +43,58 @@ def _create_session(user: UserProfile) -> str:
     return token
 
 
+def _get_session() -> Session:
+    return SessionLocal()
+
+
 def register_user(payload: RegisterRequest) -> AuthResponse:
     username = payload.username.strip()
     email = payload.email.strip().lower()
 
-    with _DB_LOCK, _connect() as conn:
-        existing = conn.execute(
-            "SELECT id FROM users WHERE username = ? OR email = ?",
-            (username, email),
-        ).fetchone()
+    with _get_session() as db:
+        existing = db.execute(
+            select(User).where(or_(User.username == username, User.email == email))
+        ).scalar_one_or_none()
         if existing:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="用户名或邮箱已存在",
-            )
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="用户名或邮箱已存在")
 
         salt, digest = _hash_password(payload.password)
-        cursor = conn.execute(
-            """
-            INSERT INTO users (username, email, password_salt, password_hash)
-            VALUES (?, ?, ?, ?)
-            """,
-            (username, email, salt, digest),
+        user = User(
+            username=username,
+            email=email,
+            password_salt=salt,
+            password_hash=digest,
         )
-        conn.commit()
+        db.add(user)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="用户名或邮箱已存在") from None
+        db.refresh(user)
 
-        row = conn.execute(
-            "SELECT id, username, email FROM users WHERE id = ?",
-            (cursor.lastrowid,),
-        ).fetchone()
-
-    if row is None:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="注册失败")
-
-    user = _public_user(row)
-    token = _create_session(user)
-    return AuthResponse(token=token, user=user)
+    public_user = _public_user(user)
+    token = _create_session(public_user)
+    return AuthResponse(token=token, user=public_user)
 
 
 def login_user(payload: LoginRequest) -> AuthResponse:
     identifier = payload.identifier.strip()
 
-    with _DB_LOCK, _connect() as conn:
-        row = conn.execute(
-            """
-            SELECT id, username, email, password_salt, password_hash
-            FROM users
-            WHERE username = ? OR email = ?
-            """,
-            (identifier, identifier.lower()),
-        ).fetchone()
+    with _get_session() as db:
+        user = db.execute(
+            select(User).where(or_(User.username == identifier, User.email == identifier.lower()))
+        ).scalar_one_or_none()
 
-    if row is None or not _verify_password(payload.password, row["password_salt"], row["password_hash"]):
+    if user is None or not _verify_password(payload.password, user.password_salt, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户名/邮箱或密码错误",
         )
 
-    user = _public_user(row)
-    token = _create_session(user)
-    return AuthResponse(token=token, user=user)
+    public_user = _public_user(user)
+    token = _create_session(public_user)
+    return AuthResponse(token=token, user=public_user)
 
 
 def get_current_user(authorization: str | None) -> UserProfile:

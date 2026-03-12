@@ -4,7 +4,6 @@ import asyncio
 import os
 import tempfile
 import logging
-from typing import Optional
 
 from fastapi import UploadFile, HTTPException
 
@@ -82,7 +81,7 @@ async def transcribe_audio(file: UploadFile) -> TranscriptResponse:
         logger.error(f"Failed to create temp file: {e}")
         raise HTTPException(status_code=500, detail="Failed to save audio file")
 
-    async def _run(path: str) -> tuple[str, str, list[TranscriptSegment]]:
+    def _run(path: str) -> tuple[str, str, list[TranscriptSegment]]:
         """Run blocking transcription in a thread."""
         model = _whisper_model
         segments_out: list[TranscriptSegment] = []
@@ -92,9 +91,13 @@ async def transcribe_audio(file: UploadFile) -> TranscriptResponse:
             # 2. Call local faster-whisper model
             seg_iter, info = model.transcribe(
                 path,
+                language="zh",
+                task="transcribe",
                 beam_size=5,
+                best_of=5,
                 vad_filter=True,
                 vad_parameters={"min_silence_duration_ms": 150},
+                initial_prompt="以下是中文会议录音，请输出简体中文，并尽量保留正常标点和专有名词。",
             )
             
             for seg in seg_iter:

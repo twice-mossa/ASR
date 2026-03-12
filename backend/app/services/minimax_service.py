@@ -53,10 +53,9 @@ async def build_summary(text: str) -> MeetingSummaryResponse:
         logger.warning("MiniMax API key not set. Using fallback.")
         return _fallback_summarize(text)
 
-    # API Configuration
-    # Ensure base_url is set, default to MiniMax public endpoint if not
-    base_url = getattr(settings, "minimax_base_url", "https://api.minimax.chat")
-    url = f"{base_url.rstrip('/')}/v1/chat/completions"
+    # Coding Plan keys follow the current OpenAI-compatible MiniMax endpoint.
+    base_url = getattr(settings, "minimax_base_url", "https://api.minimaxi.com/v1")
+    url = f"{base_url.rstrip('/')}/chat/completions"
     
     headers = {
         "Authorization": f"Bearer {settings.minimax_api_key}", 
@@ -77,7 +76,7 @@ async def build_summary(text: str) -> MeetingSummaryResponse:
     user_prompt = f"以下是会议转写文本：\n{text}"
     
     data = {
-        "model": "abab6.5-chat", 
+        "model": "MiniMax-M2.5",
         "temperature": 0.1,
         "messages": [
             {"role": "system", "content": system_prompt},
@@ -119,10 +118,21 @@ async def build_summary(text: str) -> MeetingSummaryResponse:
                 cleaned_content = cleaned_content[:-3]
             
             cleaned_content = cleaned_content.strip()
-                
+
+            parsed = None
             try:
                 parsed = json.loads(cleaned_content)
             except json.JSONDecodeError:
+                start = cleaned_content.find("{")
+                end = cleaned_content.rfind("}")
+                if start != -1 and end != -1 and end > start:
+                    candidate = cleaned_content[start : end + 1]
+                    try:
+                        parsed = json.loads(candidate)
+                    except json.JSONDecodeError:
+                        parsed = None
+
+            if parsed is None:
                 logger.error(f"Failed to parse JSON from model output: {content}")
                 return _fallback_summarize(text)
 
