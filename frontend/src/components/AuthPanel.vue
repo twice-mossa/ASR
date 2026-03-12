@@ -30,28 +30,23 @@ defineProps({
   },
   guestTitle: {
     type: String,
-    default: "登录 / 注册",
+    default: "进入工作区",
   },
   guestPill: {
     type: String,
-    default: "基础功能",
+    default: "Account",
   },
   authedLabel: {
     type: String,
-    default: "欢迎回来",
+    default: "当前账号",
   },
   authedPill: {
     type: String,
-    default: "已登录",
+    default: "Ready",
   },
 });
 
-const emit = defineEmits([
-  "update:activeTab",
-  "login",
-  "register",
-  "logout",
-]);
+const emit = defineEmits(["update:activeTab", "login", "register", "logout"]);
 </script>
 
 <template>
@@ -61,15 +56,12 @@ const emit = defineEmits([
         <div>
           <p class="card-label">{{ guestLabel }}</p>
           <h2>{{ guestTitle }}</h2>
+          <p class="card-copy">登录之后，上传音频、查看转写、生成纪要都在同一个工作区里完成。</p>
         </div>
         <span class="pill">{{ guestPill }}</span>
       </div>
 
-      <el-tabs
-        :model-value="activeTab"
-        stretch
-        @update:model-value="emit('update:activeTab', $event)"
-      >
+      <el-tabs :model-value="activeTab" stretch @update:model-value="emit('update:activeTab', $event)">
         <el-tab-pane label="登录" name="login">
           <el-form label-position="top" @submit.prevent="emit('login')">
             <el-form-item label="用户名或邮箱">
@@ -84,7 +76,7 @@ const emit = defineEmits([
               />
             </el-form-item>
             <el-button type="primary" :loading="loading" class="submit-button" @click="emit('login')">
-              登录
+              进入工作区
             </el-button>
           </el-form>
         </el-tab-pane>
@@ -114,7 +106,7 @@ const emit = defineEmits([
               />
             </el-form-item>
             <el-button type="primary" :loading="loading" class="submit-button" @click="emit('register')">
-              注册并登录
+              创建账号并开始
             </el-button>
           </el-form>
         </el-tab-pane>
@@ -126,6 +118,7 @@ const emit = defineEmits([
         <div>
           <p class="card-label">{{ authedLabel }}</p>
           <h2>{{ session.user.username }}</h2>
+          <p class="card-copy">你已经进入工作区，可以直接上传会议音频并开始整理内容。</p>
         </div>
         <span class="pill success">{{ authedPill }}</span>
       </div>
@@ -145,15 +138,32 @@ const emit = defineEmits([
 
 <style scoped>
 .card {
-  padding: 24px;
-  border-radius: 24px;
-  background: rgba(255, 255, 255, 0.82);
-  box-shadow: 0 18px 60px rgba(48, 60, 80, 0.12);
-  backdrop-filter: blur(10px);
+  position: relative;
+  overflow: hidden;
+  padding: 34px;
+  border: 1px solid rgba(37, 99, 235, 0.1);
+  border-radius: 34px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(245, 248, 252, 0.82)),
+    rgba(255, 255, 255, 0.84);
+  box-shadow: 0 28px 70px rgba(15, 23, 42, 0.14);
+  backdrop-filter: blur(16px);
+}
+
+.card::before {
+  content: "";
+  position: absolute;
+  right: -40px;
+  bottom: -80px;
+  width: 180px;
+  height: 180px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(249, 115, 22, 0.18), rgba(249, 115, 22, 0));
+  pointer-events: none;
 }
 
 .auth-card {
-  min-height: 520px;
+  min-height: 540px;
 }
 
 .card-header {
@@ -161,47 +171,101 @@ const emit = defineEmits([
   justify-content: space-between;
   gap: 16px;
   align-items: flex-start;
-  margin-bottom: 8px;
+  margin-bottom: 14px;
 }
 
 .card-label {
   margin: 0 0 10px;
-  color: #915f00;
-  font-size: 0.9rem;
+  color: #64748b;
+  font-size: 0.82rem;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
 }
 
 h2 {
-  margin: 0 0 16px;
-  font-size: 1.45rem;
+  margin: 0 0 14px;
+  font-family: "Calistoga", "Iowan Old Style", "Palatino Linotype", serif;
+  font-size: 2.3rem;
+  letter-spacing: -0.03em;
+}
+
+.card-copy {
+  max-width: 34ch;
+  margin: 0;
+  color: #64748b;
+  line-height: 1.8;
 }
 
 .pill {
   display: inline-flex;
   align-items: center;
-  padding: 8px 12px;
+  padding: 10px 14px;
   border-radius: 999px;
-  background: #fff3d2;
-  color: #8a5b00;
-  font-size: 0.88rem;
+  background: rgba(37, 99, 235, 0.12);
+  color: #2563eb;
+  font-size: 0.8rem;
   font-weight: 700;
+  letter-spacing: 0.08em;
 }
 
 .pill.success {
-  background: #dff5ea;
-  color: #0a6c47;
+  background: rgba(15, 118, 110, 0.14);
+  color: #0f766e;
 }
 
 .submit-button {
   width: 100%;
-  margin-top: 8px;
+  margin-top: 12px;
 }
 
 .auth-actions {
-  margin-top: 20px;
+  margin-top: 22px;
   display: flex;
   justify-content: flex-end;
+}
+
+:deep(.el-tabs__nav-wrap::after) {
+  background-color: rgba(37, 99, 235, 0.08);
+}
+
+:deep(.el-tabs__item) {
+  font-weight: 700;
+}
+
+:deep(.el-tabs__item.is-active) {
+  color: #2563eb;
+}
+
+:deep(.el-tabs__active-bar) {
+  background: linear-gradient(90deg, #2563eb, #f97316);
+}
+
+:deep(.el-form-item__label) {
+  font-weight: 700;
+  color: #334155;
+}
+
+:deep(.el-input__wrapper) {
+  min-height: 50px;
+  border-radius: 16px;
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.08) inset;
+  transition: box-shadow 180ms ease, transform 180ms ease;
+}
+
+:deep(.el-input__wrapper.is-focus) {
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18);
+  transform: translateY(-1px);
+}
+
+:deep(.el-button) {
+  min-height: 48px;
+  border-radius: 16px;
+  font-weight: 700;
+}
+
+:deep(.el-descriptions__label) {
+  width: 120px;
+  font-weight: 700;
 }
 </style>
