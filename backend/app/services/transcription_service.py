@@ -4,7 +4,6 @@ import asyncio
 import os
 import tempfile
 import logging
-from typing import Optional
 
 from fastapi import UploadFile, HTTPException
 
@@ -92,9 +91,13 @@ async def transcribe_audio(file: UploadFile) -> TranscriptResponse:
             # 2. Call local faster-whisper model
             seg_iter, info = model.transcribe(
                 path,
+                language="zh",
+                task="transcribe",
                 beam_size=5,
+                best_of=5,
                 vad_filter=True,
                 vad_parameters={"min_silence_duration_ms": 150},
+                initial_prompt="以下是中文会议录音，请输出简体中文，并尽量保留正常标点和专有名词。",
             )
             
             for seg in seg_iter:

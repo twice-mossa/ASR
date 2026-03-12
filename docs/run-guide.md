@@ -49,7 +49,7 @@ DATABASE_URL=mysql+mysqlconnector://asr_user:asr_password@127.0.0.1:3307/asr_mee
 
 说明：
 
-- `WHISPER_MODEL_SIZE=tiny` 是为了明天路演更快启动
+- `WHISPER_MODEL_SIZE=large-v3` 是为了本机路演获得更好的中文转写效果
 - `MINIMAX_API_KEY` 为空时，摘要接口会自动走兜底逻辑，项目仍然能演示
 
 ## 五、启动后端
