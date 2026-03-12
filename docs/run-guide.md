@@ -44,7 +44,7 @@ docker compose ps
 MINIMAX_API_KEY=
 MINIMAX_BASE_URL=https://api.minimax.chat
 WHISPER_MODEL_SIZE=tiny
-DATABASE_URL=mysql+pymysql://asr_user:asr_password@127.0.0.1:3306/asr_meeting
+DATABASE_URL=mysql+mysqlconnector://asr_user:asr_password@127.0.0.1:3307/asr_meeting
 ```
 
 说明：
