@@ -10,6 +10,7 @@ export async function transcribeMeeting(file) {
   formData.append("file", file);
 
   const { data } = await apiClient.post("/transcribe", formData, {
+    timeout: 0,
     headers: {
       "Content-Type": "multipart/form-data",
     },
