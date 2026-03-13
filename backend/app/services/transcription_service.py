@@ -5,16 +5,26 @@ import io
 import logging
 import os
 import tempfile
+import uuid
+import threading
+from collections.abc import Callable
 
 import httpx
 import soundfile as sf
 from fastapi import HTTPException, UploadFile
 
 from app.core.config import settings
-from app.schemas.meeting import TranscriptResponse, TranscriptSegment
+from app.schemas.meeting import (
+    TranscriptJobCreateResponse,
+    TranscriptJobStatusResponse,
+    TranscriptResponse,
+    TranscriptSegment,
+)
 
 _whisper_model = None
 _load_lock = asyncio.Lock()
+_jobs_lock = threading.Lock()
+_transcription_jobs: dict[str, TranscriptJobStatusResponse] = {}
 
 logger = logging.getLogger(__name__)
 _GROQ_TIMEOUT = httpx.Timeout(connect=20.0, read=600.0, write=600.0, pool=20.0)
@@ -27,6 +37,8 @@ _TRANSCRIPT_NOISE_PHRASES = (
     "订阅 转发 打赏支持",
     "打赏支持明镜与点点栏目",
 )
+
+PartialCallback = Callable[[TranscriptResponse, int, int], None]
 
 
 async def _ensure_model_loaded():
@@ -85,11 +97,158 @@ def _normalize_segments(raw_segments: list[dict] | None) -> list[TranscriptSegme
     return segments_out
 
 
+def _build_transcript_response(
+    *,
+    filename: str,
+    language: str,
+    segments: list[TranscriptSegment],
+    text: str | None = None,
+) -> TranscriptResponse:
+    full_text = text if text is not None else " ".join(segment.text for segment in segments).strip()
+    return TranscriptResponse(
+        filename=filename,
+        language=language or "zh",
+        text=full_text.strip(),
+        segments=segments,
+    )
+
+
+def _store_job(job: TranscriptJobStatusResponse) -> None:
+    with _jobs_lock:
+        _transcription_jobs[job.job_id] = job
+
+
+def _update_job(
+    job_id: str,
+    **updates,
+) -> None:
+    with _jobs_lock:
+        current = _transcription_jobs.get(job_id)
+        if current is None:
+            return
+        _transcription_jobs[job_id] = current.model_copy(update=updates)
+
+
+async def get_transcription_job(job_id: str) -> TranscriptJobStatusResponse:
+    with _jobs_lock:
+        job = _transcription_jobs.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Transcription job not found")
+        return job
+
+
+def _set_partial_job_result(
+    job_id: str,
+    result: TranscriptResponse,
+    completed_chunks: int,
+    total_chunks: int,
+) -> None:
+    _update_job(
+        job_id,
+        status="processing",
+        filename=result.filename,
+        language=result.language,
+        text=result.text,
+        segments=result.segments,
+        completed_chunks=completed_chunks,
+        total_chunks=total_chunks,
+        error=None,
+    )
+
+
+async def start_transcription_job(file: UploadFile) -> TranscriptJobCreateResponse:
+    filename = file.filename or "unknown.wav"
+
+    try:
+        raw = await file.read()
+    except Exception as exc:
+        logger.error("Failed to read upload file: %s", exc)
+        raise HTTPException(status_code=400, detail="Invalid audio file") from exc
+
+    if not raw:
+        raise HTTPException(status_code=400, detail="Audio file is empty")
+
+    content_type = file.content_type or "application/octet-stream"
+    job_id = uuid.uuid4().hex
+
+    _store_job(
+        TranscriptJobStatusResponse(
+            job_id=job_id,
+            status="queued",
+            filename=filename,
+            language="zh",
+            text="",
+            segments=[],
+            total_chunks=1,
+            completed_chunks=0,
+            error=None,
+        )
+    )
+
+    threading.Thread(
+        target=lambda: asyncio.run(_run_transcription_job(job_id, filename, raw, content_type)),
+        name=f"transcription-job-{job_id[:8]}",
+        daemon=True,
+    ).start()
+    return TranscriptJobCreateResponse(job_id=job_id, status="queued")
+
+
+async def _run_transcription_job(job_id: str, filename: str, raw: bytes, content_type: str) -> None:
+    _update_job(job_id, status="processing")
+    try:
+        result = await _transcribe_from_bytes(
+            filename=filename,
+            raw=raw,
+            content_type=content_type,
+            on_partial=lambda partial, completed, total: _set_partial_job_result(job_id, partial, completed, total),
+        )
+        current_job = await get_transcription_job(job_id)
+        _update_job(
+            job_id,
+            status="completed",
+            filename=result.filename,
+            language=result.language,
+            text=result.text,
+            segments=result.segments,
+            completed_chunks=max(1, current_job.completed_chunks),
+            total_chunks=max(1, current_job.total_chunks),
+            error=None,
+        )
+    except HTTPException as exc:
+        _update_job(job_id, status="failed", error=str(exc.detail))
+    except Exception as exc:
+        logger.exception("Unexpected transcription job failure: %s", exc)
+        _update_job(job_id, status="failed", error=str(exc))
+
+
+async def _transcribe_from_bytes(
+    *,
+    filename: str,
+    raw: bytes,
+    content_type: str,
+    on_partial: PartialCallback | None = None,
+) -> TranscriptResponse:
+    if settings.groq_api_key:
+        return await _transcribe_with_groq(
+            filename=filename,
+            raw=raw,
+            content_type=content_type,
+            on_partial=on_partial,
+        )
+
+    logger.info("GROQ_API_KEY is empty, falling back to local faster-whisper model.")
+    result = await _transcribe_with_local_model(filename=filename, raw=raw)
+    if on_partial is not None:
+        on_partial(result, 1, 1)
+    return result
+
+
 async def _transcribe_with_groq(
     *,
     filename: str,
     raw: bytes,
     content_type: str,
+    on_partial: PartialCallback | None = None,
 ) -> TranscriptResponse:
     max_bytes = settings.groq_max_upload_mb * 1024 * 1024
     suffix = os.path.splitext(filename)[1].lower()
@@ -104,9 +263,17 @@ async def _transcribe_with_groq(
                 ),
             )
 
-        return await _transcribe_large_wav_with_groq(filename=filename, raw=raw, max_bytes=max_bytes)
+        return await _transcribe_large_wav_with_groq(
+            filename=filename,
+            raw=raw,
+            max_bytes=max_bytes,
+            on_partial=on_partial,
+        )
 
-    return await _transcribe_with_groq_single(filename=filename, raw=raw, content_type=content_type)
+    result = await _transcribe_with_groq_single(filename=filename, raw=raw, content_type=content_type)
+    if on_partial is not None:
+        on_partial(result, 1, 1)
+    return result
 
 
 async def _transcribe_with_groq_single(
@@ -152,11 +319,11 @@ async def _transcribe_with_groq_single(
     elif not full_text and segments:
         full_text = " ".join(segment.text for segment in segments).strip()
 
-    return TranscriptResponse(
+    return _build_transcript_response(
         filename=filename,
         language=language,
-        text=full_text,
         segments=segments,
+        text=full_text,
     )
 
 
@@ -166,7 +333,6 @@ def _split_wav_bytes(raw: bytes, max_bytes: int) -> list[tuple[float, bytes]]:
             samplerate = reader.samplerate
             channels = reader.channels
             subtype = reader.subtype or "PCM_16"
-            format_name = reader.format or "WAV"
             total_frames = len(reader)
 
             if samplerate <= 0 or channels <= 0:
@@ -184,7 +350,6 @@ def _split_wav_bytes(raw: bytes, max_bytes: int) -> list[tuple[float, bytes]]:
                 bytes_per_channel = 2
 
             bytes_per_frame = channels * bytes_per_channel
-
             target_bytes = max(4 * 1024 * 1024, max_bytes - 512 * 1024)
             frames_per_chunk = max(1, target_bytes // bytes_per_frame)
 
@@ -212,21 +377,21 @@ async def _transcribe_large_wav_with_groq(
     filename: str,
     raw: bytes,
     max_bytes: int,
+    on_partial: PartialCallback | None = None,
 ) -> TranscriptResponse:
     chunks = await asyncio.to_thread(_split_wav_bytes, raw, max_bytes)
-
     logger.info("Chunking large WAV for Groq transcription: %s chunks", len(chunks))
 
-    combined_text: list[str] = []
     combined_segments: list[TranscriptSegment] = []
     language = "zh"
+    total_chunks = len(chunks)
 
     for index, (offset_seconds, chunk_raw) in enumerate(chunks, start=1):
         chunk_name = f"{os.path.splitext(filename)[0]}_part_{index}.wav"
         logger.info(
             "Sending chunk %s/%s to Groq: offset=%.2fs size=%.2fMB",
             index,
-            len(chunks),
+            total_chunks,
             offset_seconds,
             len(chunk_raw) / 1024 / 1024,
         )
@@ -236,8 +401,6 @@ async def _transcribe_large_wav_with_groq(
             content_type="audio/wav",
         )
 
-        if result.text:
-            combined_text.append(result.text)
         if result.language:
             language = result.language
 
@@ -250,10 +413,17 @@ async def _transcribe_large_wav_with_groq(
                 )
             )
 
-    return TranscriptResponse(
+        partial_result = _build_transcript_response(
+            filename=filename,
+            language=language,
+            segments=combined_segments.copy(),
+        )
+        if on_partial is not None:
+            on_partial(partial_result, index, total_chunks)
+
+    return _build_transcript_response(
         filename=filename,
         language=language,
-        text=" ".join(part.strip() for part in combined_text if part.strip()).strip(),
         segments=combined_segments,
     )
 
@@ -311,11 +481,11 @@ async def _transcribe_with_local_model(filename: str, raw: bytes) -> TranscriptR
         except OSError as exc:
             logger.warning("Failed to remove temp file %s: %s", tmp_path, exc)
 
-    return TranscriptResponse(
+    return _build_transcript_response(
         filename=filename,
         language=language or "zh",
-        text=full_text,
         segments=segments_out,
+        text=full_text,
     )
 
 
@@ -332,9 +502,4 @@ async def transcribe_audio(file: UploadFile) -> TranscriptResponse:
         raise HTTPException(status_code=400, detail="Audio file is empty")
 
     content_type = file.content_type or "application/octet-stream"
-
-    if settings.groq_api_key:
-        return await _transcribe_with_groq(filename=filename, raw=raw, content_type=content_type)
-
-    logger.info("GROQ_API_KEY is empty, falling back to local faster-whisper model.")
-    return await _transcribe_with_local_model(filename=filename, raw=raw)
+    return await _transcribe_from_bytes(filename=filename, raw=raw, content_type=content_type)

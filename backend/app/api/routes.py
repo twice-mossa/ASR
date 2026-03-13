@@ -4,11 +4,13 @@ from app.schemas.auth import AuthResponse, LoginRequest, LogoutResponse, Registe
 from app.schemas.meeting import (
     MeetingSummaryResponse,
     SummaryRequest,
+    TranscriptJobCreateResponse,
+    TranscriptJobStatusResponse,
     TranscriptResponse,
 )
 from app.services.auth_service import get_current_user, login_user, logout_user, register_user
 from app.services.minimax_service import build_summary
-from app.services.transcription_service import transcribe_audio
+from app.services.transcription_service import get_transcription_job, start_transcription_job, transcribe_audio
 
 router = APIRouter(prefix="/api")
 
@@ -49,6 +51,16 @@ async def create_transcript(file: UploadFile = File(...)) -> TranscriptResponse:
     - **file**: Audio file (wav, mp3, etc.)
     """
     return await transcribe_audio(file)
+
+
+@router.post("/transcribe/jobs", response_model=TranscriptJobCreateResponse)
+async def create_transcription_job(file: UploadFile = File(...)) -> TranscriptJobCreateResponse:
+    return await start_transcription_job(file)
+
+
+@router.get("/transcribe/jobs/{job_id}", response_model=TranscriptJobStatusResponse)
+async def read_transcription_job(job_id: str) -> TranscriptJobStatusResponse:
+    return await get_transcription_job(job_id)
 
 
 @router.post("/summary", response_model=MeetingSummaryResponse)

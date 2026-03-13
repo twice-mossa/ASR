@@ -4,7 +4,7 @@ import { ElNotification } from "element-plus";
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 
 import { fetchCurrentUser, loginUser, logoutUser, registerUser } from "./api/auth";
-import { summarizeMeeting, transcribeMeeting } from "./api/meeting";
+import { getTranscriptionJob, startTranscriptionJob, summarizeMeeting } from "./api/meeting";
 import AuthPanel from "./components/AuthPanel.vue";
 import PageHero from "./components/PageHero.vue";
 
@@ -22,6 +22,7 @@ function safeParse(raw) {
 
 const activeTab = ref("login");
 const authLoading = ref(false);
+const activeTranscriptionJobId = ref("");
 const workLoading = reactive({
   transcribe: false,
   summary: false,
@@ -47,6 +48,9 @@ const workspace = reactive({
   transcript: null,
   summary: null,
   isDragging: false,
+  transcriptionStatus: "idle",
+  completedChunks: 0,
+  totalChunks: 1,
 });
 
 const heroHighlights = [
@@ -77,7 +81,7 @@ const heroMetrics = [
 ];
 
 const isAuthenticated = computed(() => Boolean(session.token && session.user));
-const canGenerateSummary = computed(() => Boolean(workspace.transcript?.text));
+const canGenerateSummary = computed(() => Boolean(workspace.transcript?.text) && !workLoading.transcribe);
 const canPreviewAudio = computed(() => Boolean(workspace.audioUrl));
 
 function notify(message, type = "success", title = "通知") {
@@ -105,17 +109,21 @@ function clearSession() {
 }
 
 function resolveError(error, fallback) {
-  return error?.response?.data?.detail || fallback;
+  return error?.response?.data?.detail || error?.message || fallback;
 }
 
 function resetWorkspace() {
   revokeAudioUrl();
+  activeTranscriptionJobId.value = "";
   workspace.file = null;
   workspace.fileName = "";
   workspace.audioUrl = "";
   workspace.transcript = null;
   workspace.summary = null;
   workspace.isDragging = false;
+  workspace.transcriptionStatus = "idle";
+  workspace.completedChunks = 0;
+  workspace.totalChunks = 1;
 }
 
 function revokeAudioUrl() {
@@ -126,12 +134,16 @@ function revokeAudioUrl() {
 
 function applySelectedFile(file) {
   revokeAudioUrl();
+  activeTranscriptionJobId.value = "";
   workspace.file = file || null;
   workspace.fileName = file?.name || "";
   workspace.audioUrl = file ? URL.createObjectURL(file) : "";
   workspace.transcript = null;
   workspace.summary = null;
   workspace.isDragging = false;
+  workspace.transcriptionStatus = "idle";
+  workspace.completedChunks = 0;
+  workspace.totalChunks = 1;
 }
 
 function isSupportedAudio(file) {
@@ -246,12 +258,22 @@ async function handleTranscribe() {
   }
 
   workLoading.transcribe = true;
-  workspace.transcript = null;
+  workspace.transcript = {
+    filename: workspace.fileName,
+    language: "zh",
+    text: "",
+    segments: [],
+  };
   workspace.summary = null;
+  workspace.transcriptionStatus = "queued";
+  workspace.completedChunks = 0;
+  workspace.totalChunks = 1;
   notify("已开始转写。长音频可能需要几分钟，请等待结果返回。", "info", "开始转写");
 
   try {
-    workspace.transcript = await transcribeMeeting(workspace.file);
+    const job = await startTranscriptionJob(workspace.file);
+    activeTranscriptionJobId.value = job.job_id;
+    await pollTranscriptionJob(job.job_id);
     notify("音频转写完成", "success", "转写完成");
   } catch (error) {
     notify(
@@ -261,6 +283,35 @@ async function handleTranscribe() {
     );
   } finally {
     workLoading.transcribe = false;
+  }
+}
+
+function applyTranscriptionStatus(status) {
+  workspace.transcriptionStatus = status.status || "processing";
+  workspace.completedChunks = status.completed_chunks || 0;
+  workspace.totalChunks = status.total_chunks || 1;
+  workspace.transcript = {
+    filename: status.filename || workspace.fileName,
+    language: status.language || "zh",
+    text: status.text || "",
+    segments: status.segments || [],
+  };
+}
+
+async function pollTranscriptionJob(jobId) {
+  while (activeTranscriptionJobId.value === jobId) {
+    const status = await getTranscriptionJob(jobId);
+    applyTranscriptionStatus(status);
+
+    if (status.status === "completed") {
+      return;
+    }
+
+    if (status.status === "failed") {
+      throw new Error(status.error || "转写失败");
+    }
+
+    await new Promise((resolve) => window.setTimeout(resolve, 1500));
   }
 }
 
@@ -366,7 +417,10 @@ onBeforeUnmount(() => {
           <el-icon class="processing-icon is-loading"><Loading /></el-icon>
           <div class="processing-copy">
             <h3>正在转写音频</h3>
-            <p>长音频可能需要几分钟。你可以继续播放或暂停当前音频，但不要重复提交同一个文件。</p>
+            <p v-if="workspace.totalChunks > 1">
+              已完成 {{ workspace.completedChunks }} / {{ workspace.totalChunks }} 段，结果会按语音时间顺序持续追加到下方。
+            </p>
+            <p v-else>长音频可能需要几分钟。你可以继续播放或暂停当前音频，但不要重复提交同一个文件。</p>
           </div>
         </div>
 
