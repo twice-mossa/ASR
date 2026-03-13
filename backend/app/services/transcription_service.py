@@ -18,7 +18,15 @@ _load_lock = asyncio.Lock()
 
 logger = logging.getLogger(__name__)
 _GROQ_TIMEOUT = httpx.Timeout(connect=20.0, read=600.0, write=600.0, pool=20.0)
-_GROQ_PROMPT = "以下是中文会议录音，请输出简体中文，并尽量保留正常标点和专有名词。"
+_LOCAL_PROMPT = "以下是中文会议录音，请输出简体中文，并尽量保留正常标点和专有名词。"
+_TRANSCRIPT_NOISE_PHRASES = (
+    "请输出简体中文",
+    "尽量保留正常标点",
+    "尽量保留正常标点和专有名词",
+    "请不吝点赞",
+    "订阅 转发 打赏支持",
+    "打赏支持明镜与点点栏目",
+)
 
 
 async def _ensure_model_loaded():
@@ -53,10 +61,18 @@ async def _ensure_model_loaded():
         logger.info("Local faster-whisper model loaded.")
 
 
+def _sanitize_transcript_text(text: str) -> str:
+    cleaned = (text or "").strip()
+    for phrase in _TRANSCRIPT_NOISE_PHRASES:
+        cleaned = cleaned.replace(phrase, " ")
+    cleaned = " ".join(cleaned.split())
+    return cleaned.strip(" ,，。；;：:")
+
+
 def _normalize_segments(raw_segments: list[dict] | None) -> list[TranscriptSegment]:
     segments_out: list[TranscriptSegment] = []
     for segment in raw_segments or []:
-        text = str(segment.get("text", "")).strip()
+        text = _sanitize_transcript_text(str(segment.get("text", "")))
         if not text:
             continue
         segments_out.append(
@@ -107,7 +123,6 @@ async def _transcribe_with_groq_single(
         "language": "zh",
         "response_format": "verbose_json",
         "timestamp_granularities[]": "segment",
-        "prompt": _GROQ_PROMPT,
     }
     files = {
         "file": (filename, raw, content_type),
@@ -128,12 +143,14 @@ async def _transcribe_with_groq_single(
         raise HTTPException(status_code=502, detail=f"Groq transcription failed: {detail}")
 
     payload = response.json()
-    full_text = str(payload.get("text", "")).strip()
+    full_text = _sanitize_transcript_text(str(payload.get("text", "")))
     language = str(payload.get("language", "zh") or "zh")
     segments = _normalize_segments(payload.get("segments"))
 
     if full_text and not segments:
         segments = [TranscriptSegment(start=0.0, end=0.0, text=full_text)]
+    elif not full_text and segments:
+        full_text = " ".join(segment.text for segment in segments).strip()
 
     return TranscriptResponse(
         filename=filename,
@@ -267,13 +284,13 @@ async def _transcribe_with_local_model(filename: str, raw: bytes) -> TranscriptR
             best_of=5,
             vad_filter=True,
             vad_parameters={"min_silence_duration_ms": 150},
-            initial_prompt=_GROQ_PROMPT,
+            initial_prompt=_LOCAL_PROMPT,
         )
 
         for seg in seg_iter:
             start = float(getattr(seg, "start", 0.0))
             end = float(getattr(seg, "end", 0.0))
-            text = str(getattr(seg, "text", "")).strip()
+            text = _sanitize_transcript_text(str(getattr(seg, "text", "")))
             if text:
                 text_chunks.append(text)
                 segments_out.append(TranscriptSegment(start=start, end=end, text=text))
