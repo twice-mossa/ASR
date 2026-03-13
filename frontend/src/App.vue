@@ -1,5 +1,7 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from "vue";
+import { Loading } from "@element-plus/icons-vue";
+import { ElNotification } from "element-plus";
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 
 import { fetchCurrentUser, loginUser, logoutUser, registerUser } from "./api/auth";
 import { summarizeMeeting, transcribeMeeting } from "./api/meeting";
@@ -24,10 +26,6 @@ const workLoading = reactive({
   transcribe: false,
   summary: false,
 });
-const message = reactive({
-  type: "success",
-  text: "",
-});
 const session = reactive({
   token: localStorage.getItem("auth_token") || "",
   user: safeParse(localStorage.getItem("auth_user")),
@@ -45,8 +43,10 @@ const registerForm = reactive({
 const workspace = reactive({
   file: null,
   fileName: "",
+  audioUrl: "",
   transcript: null,
   summary: null,
+  isDragging: false,
 });
 
 const heroHighlights = [
@@ -78,14 +78,16 @@ const heroMetrics = [
 
 const isAuthenticated = computed(() => Boolean(session.token && session.user));
 const canGenerateSummary = computed(() => Boolean(workspace.transcript?.text));
+const canPreviewAudio = computed(() => Boolean(workspace.audioUrl));
 
-function setMessage(text, type = "success") {
-  message.text = text;
-  message.type = type;
-}
-
-function clearMessage() {
-  message.text = "";
+function notify(message, type = "success", title = "通知") {
+  ElNotification({
+    title,
+    message,
+    type,
+    position: "top-right",
+    duration: type === "error" ? 5000 : 3000,
+  });
 }
 
 function persistSession(payload) {
@@ -107,26 +109,81 @@ function resolveError(error, fallback) {
 }
 
 function resetWorkspace() {
+  revokeAudioUrl();
   workspace.file = null;
   workspace.fileName = "";
+  workspace.audioUrl = "";
   workspace.transcript = null;
   workspace.summary = null;
+  workspace.isDragging = false;
+}
+
+function revokeAudioUrl() {
+  if (workspace.audioUrl) {
+    URL.revokeObjectURL(workspace.audioUrl);
+  }
+}
+
+function applySelectedFile(file) {
+  revokeAudioUrl();
+  workspace.file = file || null;
+  workspace.fileName = file?.name || "";
+  workspace.audioUrl = file ? URL.createObjectURL(file) : "";
+  workspace.transcript = null;
+  workspace.summary = null;
+  workspace.isDragging = false;
+}
+
+function isSupportedAudio(file) {
+  if (!file) {
+    return false;
+  }
+
+  const lowerName = file.name.toLowerCase();
+  return [".wav", ".mp3", ".m4a", ".flac"].some((ext) => lowerName.endsWith(ext));
 }
 
 function handleFileSelect(event) {
   const [file] = event.target.files || [];
-  workspace.file = file || null;
-  workspace.fileName = file?.name || "";
-  workspace.transcript = null;
-  workspace.summary = null;
-  clearMessage();
+  if (file && !isSupportedAudio(file)) {
+    notify("仅支持 wav、mp3、m4a、flac 音频文件", "warning", "文件类型不支持");
+    return;
+  }
+  applySelectedFile(file || null);
+}
+
+function handleDragOver(event) {
+  event.preventDefault();
+  workspace.isDragging = true;
+}
+
+function handleDragLeave(event) {
+  if (event.currentTarget.contains(event.relatedTarget)) {
+    return;
+  }
+  workspace.isDragging = false;
+}
+
+function handleDrop(event) {
+  event.preventDefault();
+  workspace.isDragging = false;
+
+  const [file] = event.dataTransfer?.files || [];
+  if (!file) {
+    return;
+  }
+
+  if (!isSupportedAudio(file)) {
+    notify("仅支持 wav、mp3、m4a、flac 音频文件", "warning", "文件类型不支持");
+    return;
+  }
+
+  applySelectedFile(file);
 }
 
 async function handleRegister() {
-  clearMessage();
-
   if (registerForm.password !== registerForm.confirmPassword) {
-    setMessage("两次输入的密码不一致", "error");
+    notify("两次输入的密码不一致", "error", "注册失败");
     return;
   }
 
@@ -138,20 +195,19 @@ async function handleRegister() {
       password: registerForm.password,
     });
     persistSession(payload);
-    setMessage("注册成功，已自动登录");
+    notify("注册成功，已自动登录", "success", "注册成功");
     registerForm.username = "";
     registerForm.email = "";
     registerForm.password = "";
     registerForm.confirmPassword = "";
   } catch (error) {
-    setMessage(resolveError(error, "注册失败，请稍后再试"), "error");
+    notify(resolveError(error, "注册失败，请稍后再试"), "error", "注册失败");
   } finally {
     authLoading.value = false;
   }
 }
 
 async function handleLogin() {
-  clearMessage();
   authLoading.value = true;
   try {
     const payload = await loginUser({
@@ -159,18 +215,17 @@ async function handleLogin() {
       password: loginForm.password,
     });
     persistSession(payload);
-    setMessage("登录成功");
+    notify("登录成功", "success", "登录成功");
     loginForm.identifier = "";
     loginForm.password = "";
   } catch (error) {
-    setMessage(resolveError(error, "登录失败，请稍后再试"), "error");
+    notify(resolveError(error, "登录失败，请稍后再试"), "error", "登录失败");
   } finally {
     authLoading.value = false;
   }
 }
 
 async function handleLogout() {
-  clearMessage();
   authLoading.value = true;
   try {
     await logoutUser(session.token);
@@ -180,26 +235,30 @@ async function handleLogout() {
     clearSession();
     resetWorkspace();
     authLoading.value = false;
-    setMessage("已退出登录");
+    notify("已退出登录", "success", "退出成功");
   }
 }
 
 async function handleTranscribe() {
   if (!workspace.file) {
-    setMessage("请先选择音频文件", "warning");
+    notify("请先选择音频文件", "warning", "缺少文件");
     return;
   }
 
-  clearMessage();
   workLoading.transcribe = true;
   workspace.transcript = null;
   workspace.summary = null;
+  notify("已开始转写。长音频可能需要几分钟，请等待结果返回。", "info", "开始转写");
 
   try {
     workspace.transcript = await transcribeMeeting(workspace.file);
-    setMessage("音频转写完成");
+    notify("音频转写完成", "success", "转写完成");
   } catch (error) {
-    setMessage(resolveError(error, "转写失败，请检查音频格式或模型环境"), "error");
+    notify(
+      resolveError(error, "转写失败。若音频较长，请先确认后端仍在运行并等待更久。"),
+      "error",
+      "转写失败",
+    );
   } finally {
     workLoading.transcribe = false;
   }
@@ -207,17 +266,16 @@ async function handleTranscribe() {
 
 async function handleSummary() {
   if (!workspace.transcript?.text) {
-    setMessage("请先完成音频转写", "warning");
+    notify("请先完成音频转写", "warning", "无法生成纪要");
     return;
   }
 
-  clearMessage();
   workLoading.summary = true;
   try {
     workspace.summary = await summarizeMeeting(workspace.transcript.text);
-    setMessage("会议纪要生成完成");
+    notify("会议纪要生成完成", "success", "生成完成");
   } catch (error) {
-    setMessage(resolveError(error, "摘要生成失败，请检查 API 配置"), "error");
+    notify(resolveError(error, "摘要生成失败，请检查 API 配置"), "error", "摘要失败");
   } finally {
     workLoading.summary = false;
   }
@@ -235,6 +293,10 @@ onMounted(async () => {
     clearSession();
   }
 });
+
+onBeforeUnmount(() => {
+  revokeAudioUrl();
+});
 </script>
 
 <template>
@@ -246,15 +308,6 @@ onMounted(async () => {
       :highlights="heroHighlights"
       :notes="heroNotes"
       :metrics="heroMetrics"
-    />
-
-    <el-alert
-      v-if="message.text"
-      :title="message.text"
-      :type="message.type"
-      show-icon
-      class="status-alert"
-      :closable="false"
     />
 
     <section class="auth-section">
@@ -278,6 +331,14 @@ onMounted(async () => {
 
     <section class="card-grid workspace-grid" v-if="isAuthenticated">
       <article class="card workspace-card">
+        <div v-if="workLoading.transcribe" class="processing-overlay" aria-live="polite">
+          <div class="processing-panel">
+            <el-icon class="processing-icon is-loading"><Loading /></el-icon>
+            <h3>正在转写音频</h3>
+            <p>长音频可能需要几分钟。请不要刷新页面，也不要重复提交同一个文件。</p>
+          </div>
+        </div>
+
         <div class="card-header">
           <div>
             <p class="card-label">Transcript</p>
@@ -286,13 +347,28 @@ onMounted(async () => {
           <span class="pill">Core Flow</span>
         </div>
 
-        <label class="file-picker">
+        <label
+          class="file-picker"
+          :class="{ 'file-picker--dragging': workspace.isDragging }"
+          @dragover="handleDragOver"
+          @dragleave="handleDragLeave"
+          @drop="handleDrop"
+        >
           <span>选择会议音频文件</span>
+          <small>也可以直接把音频文件从文件夹拖到这里</small>
           <input type="file" accept=".wav,.mp3,.m4a,.flac" @change="handleFileSelect" />
         </label>
 
         <p class="file-name" v-if="workspace.fileName">当前文件：{{ workspace.fileName }}</p>
         <p class="helper-text" v-else>优先上传一段较短的会议片段，会更适合先验证转写和摘要体验。</p>
+
+        <div v-if="canPreviewAudio" class="audio-preview">
+          <div class="audio-preview__header">
+            <span>音频预览</span>
+            <small>先听一遍确认上传内容是否正确</small>
+          </div>
+          <audio :src="workspace.audioUrl" controls preload="metadata" class="audio-player" />
+        </div>
 
         <div class="action-row">
           <el-button type="primary" :loading="workLoading.transcribe" @click="handleTranscribe">
@@ -409,14 +485,6 @@ onMounted(async () => {
   pointer-events: none;
 }
 
-.status-alert {
-  position: sticky;
-  top: 18px;
-  z-index: 4;
-  max-width: 980px;
-  margin: 0 auto 24px;
-}
-
 .auth-section {
   max-width: 920px;
   margin: 0 auto 34px;
@@ -436,6 +504,7 @@ onMounted(async () => {
 .card,
 .workspace-card,
 .summary-card {
+  position: relative;
   padding: 30px;
   border: 1px solid rgba(37, 99, 235, 0.08);
   border-radius: 34px;
@@ -444,6 +513,45 @@ onMounted(async () => {
     rgba(255, 255, 255, 0.84);
   box-shadow: 0 28px 64px rgba(15, 23, 42, 0.1);
   backdrop-filter: blur(16px);
+}
+
+.processing-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  border-radius: 34px;
+  background: rgba(248, 250, 252, 0.86);
+  backdrop-filter: blur(8px);
+}
+
+.processing-panel {
+  width: min(420px, 100%);
+  padding: 28px 24px;
+  border: 1px solid rgba(37, 99, 235, 0.14);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 22px 50px rgba(15, 23, 42, 0.14);
+  text-align: center;
+}
+
+.processing-icon {
+  margin-bottom: 14px;
+  font-size: 2rem;
+  color: #2563eb;
+}
+
+.processing-panel h3 {
+  margin-bottom: 10px;
+}
+
+.processing-panel p {
+  margin: 0;
+  color: #64748b;
+  line-height: 1.8;
 }
 
 .card-header {
@@ -503,10 +611,22 @@ h3 {
   background: linear-gradient(180deg, rgba(239, 246, 255, 0.95), rgba(255, 255, 255, 0.88));
   color: #1d4ed8;
   font-weight: 700;
+  transition: border-color 180ms ease, transform 180ms ease, box-shadow 180ms ease;
 }
 
 .file-picker input {
   font-weight: 400;
+}
+
+.file-picker small {
+  color: #64748b;
+  font-weight: 500;
+}
+
+.file-picker--dragging {
+  border-color: rgba(14, 165, 233, 0.8);
+  box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.12);
+  transform: translateY(-1px);
 }
 
 .file-name,
@@ -514,6 +634,33 @@ h3 {
   margin: 14px 0 0;
   color: #5b6d7f;
   line-height: 1.8;
+}
+
+.audio-preview {
+  margin-top: 18px;
+  padding: 16px 18px;
+  border: 1px solid rgba(37, 99, 235, 0.08);
+  border-radius: 20px;
+  background: rgba(248, 250, 252, 0.92);
+}
+
+.audio-preview__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+  margin-bottom: 10px;
+  color: #334155;
+  font-weight: 700;
+}
+
+.audio-preview__header small {
+  color: #64748b;
+  font-weight: 500;
+}
+
+.audio-player {
+  width: 100%;
 }
 
 .action-row {
