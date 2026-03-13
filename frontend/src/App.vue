@@ -505,16 +505,15 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-@import url("https://fonts.googleapis.com/css2?family=Calistoga&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
 
 :global(body) {
   margin: 0;
-  font-family: "Avenir Next", "PingFang SC", "Hiragino Sans GB", sans-serif;
-  background-color: #f8fafc;
+  font-family: "Inter", "SF Pro Display", "Avenir Next", "PingFang SC", "Hiragino Sans GB", sans-serif;
   background:
-    radial-gradient(circle at top left, rgba(249, 115, 22, 0.16) 0%, transparent 24%),
-    radial-gradient(circle at top right, rgba(37, 99, 235, 0.16) 0%, transparent 28%),
-    linear-gradient(180deg, #fffdf9 0%, #f8fafc 45%, #f1f5f9 100%);
+    radial-gradient(circle at 14% 10%, rgba(191, 219, 254, 0.72), transparent 20%),
+    radial-gradient(circle at 86% 4%, rgba(255, 255, 255, 0.96), transparent 24%),
+    linear-gradient(180deg, #fbfbfd 0%, #f5f7fb 42%, #eef2f7 100%);
   color: #1f2b3a;
 }
 
@@ -524,31 +523,28 @@ onBeforeUnmount(() => {
 
 .page-shell {
   min-height: 100vh;
-  padding: 48px 20px 84px;
+  padding: 52px 22px 88px;
 }
 
 .page-shell::before {
   content: "";
   position: fixed;
   inset: 0;
-  background:
-    linear-gradient(rgba(15, 23, 42, 0.015) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(15, 23, 42, 0.015) 1px, transparent 1px);
-  background-size: 32px 32px;
-  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.34), transparent 76%);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0));
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.44), transparent 82%);
   pointer-events: none;
 }
 
 .auth-section {
   max-width: 920px;
-  margin: 0 auto 34px;
+  margin: 0 auto 40px;
 }
 
 .card-grid {
   max-width: 1200px;
   margin: 0 auto;
   display: grid;
-  gap: 24px;
+  gap: 28px;
 }
 
 .workspace-grid {
@@ -558,14 +554,26 @@ onBeforeUnmount(() => {
 .card,
 .workspace-card,
 .summary-card {
-  padding: 30px;
-  border: 1px solid rgba(37, 99, 235, 0.08);
-  border-radius: 34px;
+  padding: 32px;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 38px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(245, 248, 252, 0.8)),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 250, 253, 0.82)),
     rgba(255, 255, 255, 0.84);
-  box-shadow: 0 28px 64px rgba(15, 23, 42, 0.1);
-  backdrop-filter: blur(16px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.84),
+    0 24px 60px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(18px);
+  transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.card:hover,
+.workspace-card:hover,
+.summary-card:hover {
+  transform: translateY(-4px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 30px 72px rgba(15, 23, 42, 0.1);
 }
 
 .processing-banner {
@@ -575,9 +583,9 @@ onBeforeUnmount(() => {
   align-items: start;
   margin-top: 18px;
   padding: 18px 20px;
-  border: 1px solid rgba(37, 99, 235, 0.12);
-  border-radius: 20px;
-  background: linear-gradient(180deg, rgba(239, 246, 255, 0.9), rgba(255, 255, 255, 0.92));
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 24px;
+  background: linear-gradient(180deg, rgba(239, 246, 255, 0.78), rgba(255, 255, 255, 0.82));
 }
 
 .processing-icon {
@@ -592,7 +600,7 @@ onBeforeUnmount(() => {
 
 .processing-copy p {
   margin: 0;
-  color: #64748b;
+  color: rgba(15, 23, 42, 0.6);
   line-height: 1.7;
 }
 
@@ -601,23 +609,25 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 16px;
   align-items: flex-start;
-  margin-bottom: 16px;
+  margin-bottom: 18px;
 }
 
 .card-label {
   margin: 0 0 10px;
-  color: #64748b;
-  font-size: 0.82rem;
+  color: rgba(15, 23, 42, 0.42);
+  font-size: 0.76rem;
   font-weight: 700;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
 }
 
 h2,
 h3 {
   margin: 0;
-  font-family: "Calistoga", "Iowan Old Style", "Palatino Linotype", serif;
-  letter-spacing: -0.03em;
+  font-family: "Inter", "SF Pro Display", "PingFang SC", sans-serif;
+  letter-spacing: -0.05em;
+  color: #0f172a;
+  font-weight: 800;
 }
 
 .pill {
@@ -625,7 +635,8 @@ h3 {
   align-items: center;
   padding: 10px 14px;
   border-radius: 999px;
-  background: rgba(37, 99, 235, 0.12);
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  background: rgba(255, 255, 255, 0.72);
   color: #2563eb;
   font-size: 0.8rem;
   font-weight: 700;
@@ -633,27 +644,28 @@ h3 {
 }
 
 .pill.success {
-  background: rgba(249, 115, 22, 0.14);
-  color: #c2410c;
+  background: rgba(240, 253, 250, 0.78);
+  color: #0f766e;
 }
 
 .todo-list {
   margin: 0;
   padding-left: 20px;
   line-height: 1.9;
+  color: rgba(15, 23, 42, 0.72);
 }
 
 .file-picker {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 20px;
-  border: 1px dashed rgba(37, 99, 235, 0.26);
-  border-radius: 24px;
-  background: linear-gradient(180deg, rgba(239, 246, 255, 0.95), rgba(255, 255, 255, 0.88));
-  color: #1d4ed8;
+  padding: 24px;
+  border: 1px dashed rgba(15, 23, 42, 0.12);
+  border-radius: 28px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(246, 248, 251, 0.78));
+  color: #0f172a;
   font-weight: 700;
-  transition: border-color 180ms ease, transform 180ms ease, box-shadow 180ms ease;
+  transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
 .file-picker input {
@@ -661,29 +673,31 @@ h3 {
 }
 
 .file-picker small {
-  color: #64748b;
+  color: rgba(15, 23, 42, 0.48);
   font-weight: 500;
 }
 
 .file-picker--dragging {
-  border-color: rgba(14, 165, 233, 0.8);
-  box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.12);
-  transform: translateY(-1px);
+  border-color: rgba(37, 99, 235, 0.28);
+  box-shadow:
+    0 0 0 4px rgba(37, 99, 235, 0.08),
+    0 22px 44px rgba(15, 23, 42, 0.08);
+  transform: translateY(-3px);
 }
 
 .file-name,
 .helper-text {
   margin: 14px 0 0;
-  color: #5b6d7f;
+  color: rgba(15, 23, 42, 0.58);
   line-height: 1.8;
 }
 
 .audio-preview {
   margin-top: 18px;
   padding: 16px 18px;
-  border: 1px solid rgba(37, 99, 235, 0.08);
-  border-radius: 20px;
-  background: rgba(248, 250, 252, 0.92);
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.68);
 }
 
 .audio-preview__header {
@@ -697,7 +711,7 @@ h3 {
 }
 
 .audio-preview__header small {
-  color: #64748b;
+  color: rgba(15, 23, 42, 0.48);
   font-weight: 500;
 }
 
@@ -714,6 +728,7 @@ h3 {
 
 .result-block {
   margin-top: 24px;
+  padding-top: 6px;
 }
 
 .result-header {
@@ -737,9 +752,9 @@ h3 {
   display: grid;
   gap: 6px;
   padding: 14px;
-  border-radius: 18px;
-  background: rgba(248, 250, 252, 0.9);
-  border: 1px solid rgba(37, 99, 235, 0.06);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.68);
+  border: 1px solid rgba(15, 23, 42, 0.05);
 }
 
 .segment-time {
@@ -755,6 +770,7 @@ h3 {
 .summary-section p {
   margin: 10px 0 0;
   line-height: 1.8;
+  color: rgba(15, 23, 42, 0.72);
 }
 
 .tag-list {
@@ -764,9 +780,56 @@ h3 {
   margin-top: 12px;
 }
 
+:deep(.el-empty__description p) {
+  color: rgba(15, 23, 42, 0.42);
+}
+
 :deep(.el-tag) {
   padding: 0 14px;
   border-radius: 999px;
+  background: rgba(239, 246, 255, 0.82);
+  border-color: rgba(37, 99, 235, 0.08);
+  color: #2563eb;
+}
+
+:deep(.el-input__wrapper) {
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.05) inset;
+}
+
+:deep(.el-textarea__inner) {
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.05) inset;
+  color: #0f172a;
+}
+
+:deep(.el-button) {
+  min-height: 48px;
+  border-radius: 999px;
+  font-weight: 700;
+  transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+:deep(.el-button:not(.is-disabled):hover) {
+  transform: translateY(-2px);
+}
+
+:deep(.el-button--primary) {
+  background: linear-gradient(180deg, #0f172a, #1e293b);
+  border-color: transparent;
+}
+
+:deep(.el-button--success) {
+  background: linear-gradient(180deg, #2563eb, #1d4ed8);
+  border-color: transparent;
+}
+
+:deep(.el-button.is-plain) {
+  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(15, 23, 42, 0.08);
+  color: #334155;
 }
 
 @media (prefers-reduced-motion: reduce) {

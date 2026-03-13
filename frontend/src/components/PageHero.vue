@@ -66,32 +66,34 @@ defineProps({
 <style scoped>
 .hero {
   max-width: 1200px;
-  margin: 0 auto 28px;
+  margin: 0 auto 34px;
   display: grid;
-  grid-template-columns: minmax(0, 1.34fr) minmax(320px, 0.86fr);
-  gap: 28px;
-  align-items: end;
+  grid-template-columns: minmax(0, 1.42fr) minmax(320px, 0.78fr);
+  gap: 24px;
+  align-items: stretch;
 }
 
 .copy {
   position: relative;
-  padding: 18px 0 10px;
+  padding: 28px 6px 16px;
 }
 
 .copy::before {
   content: "";
   position: absolute;
-  left: -28px;
-  top: -12px;
-  width: 240px;
-  height: 240px;
+  left: -48px;
+  top: -38px;
+  width: 300px;
+  height: 300px;
   border-radius: 999px;
-  background: radial-gradient(circle, rgba(249, 115, 22, 0.16) 0%, rgba(249, 115, 22, 0) 72%);
+  background: radial-gradient(circle, rgba(96, 165, 250, 0.16) 0%, rgba(96, 165, 250, 0) 72%);
   pointer-events: none;
+  filter: blur(12px);
 }
 
 .eyebrow-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
 }
@@ -100,8 +102,8 @@ defineProps({
 .panel-label,
 .eyebrow-badge {
   margin: 0 0 16px;
-  color: #64748b;
-  font-size: 0.82rem;
+  color: rgba(15, 23, 42, 0.52);
+  font-size: 0.76rem;
   font-weight: 700;
   letter-spacing: 0.18em;
   text-transform: uppercase;
@@ -112,53 +114,61 @@ defineProps({
   align-items: center;
   padding: 8px 12px;
   margin-bottom: 16px;
-  border: 1px solid rgba(37, 99, 235, 0.14);
+  border: 1px solid rgba(15, 23, 42, 0.08);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.72);
-  color: #2563eb;
+  background: rgba(255, 255, 255, 0.6);
+  color: #1d4ed8;
   letter-spacing: 0.12em;
+  backdrop-filter: blur(14px);
 }
 
 h1 {
   margin: 0;
-  max-width: 9ch;
-  font-family: "Calistoga", "Iowan Old Style", "Palatino Linotype", serif;
-  font-size: clamp(3.4rem, 8vw, 6.4rem);
-  line-height: 0.96;
+  max-width: 10ch;
+  font-family: "Inter", "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif;
+  font-size: clamp(3.6rem, 7vw, 6.2rem);
+  font-weight: 800;
+  line-height: 0.92;
   letter-spacing: -0.04em;
   text-wrap: balance;
+  color: #0f172a;
 }
 
 .intro {
   max-width: 760px;
   margin: 24px 0 0;
-  color: #516275;
-  font-size: 1.08rem;
-  line-height: 1.9;
+  color: rgba(15, 23, 42, 0.62);
+  font-size: 1.1rem;
+  line-height: 1.95;
 }
 
 .highlight-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-  margin-top: 30px;
+  gap: 16px;
+  margin-top: 34px;
 }
 
 .highlight-card {
-  min-height: 136px;
-  padding: 20px;
-  border: 1px solid rgba(37, 99, 235, 0.08);
-  border-radius: 26px;
+  min-height: 148px;
+  padding: 22px;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 28px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(241, 245, 249, 0.72)),
-    rgba(255, 255, 255, 0.7);
-  box-shadow: 0 18px 40px rgba(30, 41, 59, 0.08);
-  transition: transform 220ms ease, box-shadow 220ms ease;
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 252, 0.72)),
+    rgba(255, 255, 255, 0.72);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.75),
+    0 18px 40px rgba(15, 23, 42, 0.06);
+  transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+  backdrop-filter: blur(16px);
 }
 
 .highlight-card:hover {
   transform: translateY(-4px);
-  box-shadow: 0 24px 48px rgba(30, 41, 59, 0.12);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.84),
+    0 26px 56px rgba(15, 23, 42, 0.1);
 }
 
 .highlight-card p {
@@ -171,19 +181,21 @@ h1 {
 .highlight-card span {
   display: block;
   margin-top: 14px;
-  color: #64748b;
-  line-height: 1.75;
+  color: rgba(15, 23, 42, 0.58);
+  line-height: 1.8;
 }
 
 .panel {
-  padding: 28px;
-  border: 1px solid rgba(37, 99, 235, 0.1);
-  border-radius: 34px;
+  padding: 30px;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 36px;
   background:
-    linear-gradient(160deg, rgba(255, 255, 255, 0.92), rgba(239, 246, 255, 0.78)),
-    rgba(255, 255, 255, 0.72);
-  box-shadow: 0 24px 60px rgba(30, 41, 59, 0.12);
-  backdrop-filter: blur(16px);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(245, 247, 250, 0.74)),
+    rgba(255, 255, 255, 0.76);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 24px 60px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(18px);
 }
 
 .metric-grid {
@@ -195,8 +207,9 @@ h1 {
 
 .metric-item {
   padding: 14px 12px;
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.74);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.68);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
   text-align: center;
 }
 
@@ -210,7 +223,7 @@ h1 {
 .metric-item span {
   display: block;
   margin-top: 6px;
-  color: #64748b;
+  color: rgba(15, 23, 42, 0.5);
   font-size: 0.8rem;
   line-height: 1.45;
 }
@@ -226,8 +239,8 @@ h1 {
 .note-list li {
   position: relative;
   padding-left: 20px;
-  color: #334155;
-  line-height: 1.8;
+  color: rgba(15, 23, 42, 0.72);
+  line-height: 1.85;
 }
 
 .note-list li::before {
@@ -238,7 +251,7 @@ h1 {
   width: 8px;
   height: 8px;
   border-radius: 999px;
-  background: linear-gradient(135deg, #2563eb, #f97316);
+  background: linear-gradient(135deg, #2563eb, #60a5fa);
 }
 
 @media (max-width: 980px) {
