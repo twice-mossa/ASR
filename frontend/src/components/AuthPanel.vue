@@ -141,24 +141,26 @@ const emit = defineEmits(["update:activeTab", "login", "register", "logout"]);
   position: relative;
   overflow: hidden;
   padding: 34px;
-  border: 1px solid rgba(37, 99, 235, 0.1);
+  border: 1px solid rgba(15, 23, 42, 0.06);
   border-radius: 34px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(245, 248, 252, 0.82)),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(246, 248, 251, 0.82)),
     rgba(255, 255, 255, 0.84);
-  box-shadow: 0 28px 70px rgba(15, 23, 42, 0.14);
-  backdrop-filter: blur(16px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.84),
+    0 28px 70px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(18px);
 }
 
 .card::before {
   content: "";
   position: absolute;
-  right: -40px;
-  bottom: -80px;
-  width: 180px;
-  height: 180px;
+  right: -52px;
+  bottom: -96px;
+  width: 220px;
+  height: 220px;
   border-radius: 999px;
-  background: radial-gradient(circle, rgba(249, 115, 22, 0.18), rgba(249, 115, 22, 0));
+  background: radial-gradient(circle, rgba(96, 165, 250, 0.18), rgba(96, 165, 250, 0));
   pointer-events: none;
 }
 
@@ -176,25 +178,27 @@ const emit = defineEmits(["update:activeTab", "login", "register", "logout"]);
 
 .card-label {
   margin: 0 0 10px;
-  color: #64748b;
-  font-size: 0.82rem;
+  color: rgba(15, 23, 42, 0.44);
+  font-size: 0.76rem;
   font-weight: 700;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
 }
 
 h2 {
   margin: 0 0 14px;
-  font-family: "Calistoga", "Iowan Old Style", "Palatino Linotype", serif;
-  font-size: 2.3rem;
-  letter-spacing: -0.03em;
+  font-family: "Inter", "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif;
+  font-size: clamp(2.4rem, 3.8vw, 3.2rem);
+  font-weight: 800;
+  letter-spacing: -0.05em;
+  color: #0f172a;
 }
 
 .card-copy {
   max-width: 34ch;
   margin: 0;
-  color: #64748b;
-  line-height: 1.8;
+  color: rgba(15, 23, 42, 0.58);
+  line-height: 1.9;
 }
 
 .pill {
@@ -202,15 +206,16 @@ h2 {
   align-items: center;
   padding: 10px 14px;
   border-radius: 999px;
-  background: rgba(37, 99, 235, 0.12);
-  color: #2563eb;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  background: rgba(255, 255, 255, 0.68);
+  color: #1d4ed8;
   font-size: 0.8rem;
   font-weight: 700;
   letter-spacing: 0.08em;
 }
 
 .pill.success {
-  background: rgba(15, 118, 110, 0.14);
+  background: rgba(240, 253, 250, 0.82);
   color: #0f766e;
 }
 
@@ -226,7 +231,7 @@ h2 {
 }
 
 :deep(.el-tabs__nav-wrap::after) {
-  background-color: rgba(37, 99, 235, 0.08);
+  background-color: rgba(15, 23, 42, 0.06);
 }
 
 :deep(.el-tabs__item) {
@@ -234,38 +239,70 @@ h2 {
 }
 
 :deep(.el-tabs__item.is-active) {
-  color: #2563eb;
+  color: #0f172a;
 }
 
 :deep(.el-tabs__active-bar) {
-  background: linear-gradient(90deg, #2563eb, #f97316);
+  background: linear-gradient(90deg, #2563eb, #60a5fa);
 }
 
 :deep(.el-form-item__label) {
   font-weight: 700;
-  color: #334155;
+  color: rgba(15, 23, 42, 0.72);
 }
 
 :deep(.el-input__wrapper) {
   min-height: 50px;
-  border-radius: 16px;
-  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.08) inset;
-  transition: box-shadow 180ms ease, transform 180ms ease;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.06) inset;
+  transition: box-shadow 220ms ease, transform 220ms ease, background 220ms ease;
 }
 
 :deep(.el-input__wrapper.is-focus) {
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.14);
   transform: translateY(-1px);
 }
 
 :deep(.el-button) {
   min-height: 48px;
-  border-radius: 16px;
+  border-radius: 999px;
   font-weight: 700;
+  transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+:deep(.el-button:not(.is-disabled):hover) {
+  transform: translateY(-2px);
+}
+
+:deep(.el-button--primary) {
+  background: linear-gradient(180deg, #0f172a, #1e293b);
+  border-color: transparent;
+}
+
+:deep(.el-button--danger.is-plain) {
+  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(15, 23, 42, 0.08);
+  color: #334155;
 }
 
 :deep(.el-descriptions__label) {
   width: 120px;
   font-weight: 700;
+  color: rgba(15, 23, 42, 0.42);
+}
+
+:deep(.el-descriptions__body) {
+  background: transparent;
+}
+
+:deep(.el-descriptions__table) {
+  border-radius: 22px;
+  overflow: hidden;
+}
+
+:deep(.el-descriptions__cell) {
+  background: rgba(255, 255, 255, 0.72) !important;
+  border-color: rgba(15, 23, 42, 0.06) !important;
 }
 </style>
