@@ -4,7 +4,7 @@ import { ElNotification } from "element-plus";
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 
 import { fetchCurrentUser, loginUser, logoutUser, registerUser } from "./api/auth";
-import { summarizeMeeting, transcribeMeeting } from "./api/meeting";
+import { getTranscriptionJob, startTranscriptionJob, summarizeMeeting } from "./api/meeting";
 import AuthPanel from "./components/AuthPanel.vue";
 import PageHero from "./components/PageHero.vue";
 
@@ -22,6 +22,7 @@ function safeParse(raw) {
 
 const activeTab = ref("login");
 const authLoading = ref(false);
+const activeTranscriptionJobId = ref("");
 const workLoading = reactive({
   transcribe: false,
   summary: false,
@@ -47,6 +48,9 @@ const workspace = reactive({
   transcript: null,
   summary: null,
   isDragging: false,
+  transcriptionStatus: "idle",
+  completedChunks: 0,
+  totalChunks: 1,
 });
 
 const heroHighlights = [
@@ -77,7 +81,7 @@ const heroMetrics = [
 ];
 
 const isAuthenticated = computed(() => Boolean(session.token && session.user));
-const canGenerateSummary = computed(() => Boolean(workspace.transcript?.text));
+const canGenerateSummary = computed(() => Boolean(workspace.transcript?.text) && !workLoading.transcribe);
 const canPreviewAudio = computed(() => Boolean(workspace.audioUrl));
 
 function notify(message, type = "success", title = "通知") {
@@ -105,17 +109,21 @@ function clearSession() {
 }
 
 function resolveError(error, fallback) {
-  return error?.response?.data?.detail || fallback;
+  return error?.response?.data?.detail || error?.message || fallback;
 }
 
 function resetWorkspace() {
   revokeAudioUrl();
+  activeTranscriptionJobId.value = "";
   workspace.file = null;
   workspace.fileName = "";
   workspace.audioUrl = "";
   workspace.transcript = null;
   workspace.summary = null;
   workspace.isDragging = false;
+  workspace.transcriptionStatus = "idle";
+  workspace.completedChunks = 0;
+  workspace.totalChunks = 1;
 }
 
 function revokeAudioUrl() {
@@ -126,12 +134,16 @@ function revokeAudioUrl() {
 
 function applySelectedFile(file) {
   revokeAudioUrl();
+  activeTranscriptionJobId.value = "";
   workspace.file = file || null;
   workspace.fileName = file?.name || "";
   workspace.audioUrl = file ? URL.createObjectURL(file) : "";
   workspace.transcript = null;
   workspace.summary = null;
   workspace.isDragging = false;
+  workspace.transcriptionStatus = "idle";
+  workspace.completedChunks = 0;
+  workspace.totalChunks = 1;
 }
 
 function isSupportedAudio(file) {
@@ -246,12 +258,22 @@ async function handleTranscribe() {
   }
 
   workLoading.transcribe = true;
-  workspace.transcript = null;
+  workspace.transcript = {
+    filename: workspace.fileName,
+    language: "zh",
+    text: "",
+    segments: [],
+  };
   workspace.summary = null;
+  workspace.transcriptionStatus = "queued";
+  workspace.completedChunks = 0;
+  workspace.totalChunks = 1;
   notify("已开始转写。长音频可能需要几分钟，请等待结果返回。", "info", "开始转写");
 
   try {
-    workspace.transcript = await transcribeMeeting(workspace.file);
+    const job = await startTranscriptionJob(workspace.file);
+    activeTranscriptionJobId.value = job.job_id;
+    await pollTranscriptionJob(job.job_id);
     notify("音频转写完成", "success", "转写完成");
   } catch (error) {
     notify(
@@ -261,6 +283,35 @@ async function handleTranscribe() {
     );
   } finally {
     workLoading.transcribe = false;
+  }
+}
+
+function applyTranscriptionStatus(status) {
+  workspace.transcriptionStatus = status.status || "processing";
+  workspace.completedChunks = status.completed_chunks || 0;
+  workspace.totalChunks = status.total_chunks || 1;
+  workspace.transcript = {
+    filename: status.filename || workspace.fileName,
+    language: status.language || "zh",
+    text: status.text || "",
+    segments: status.segments || [],
+  };
+}
+
+async function pollTranscriptionJob(jobId) {
+  while (activeTranscriptionJobId.value === jobId) {
+    const status = await getTranscriptionJob(jobId);
+    applyTranscriptionStatus(status);
+
+    if (status.status === "completed") {
+      return;
+    }
+
+    if (status.status === "failed") {
+      throw new Error(status.error || "转写失败");
+    }
+
+    await new Promise((resolve) => window.setTimeout(resolve, 1500));
   }
 }
 
@@ -331,14 +382,6 @@ onBeforeUnmount(() => {
 
     <section class="card-grid workspace-grid" v-if="isAuthenticated">
       <article class="card workspace-card">
-        <div v-if="workLoading.transcribe" class="processing-overlay" aria-live="polite">
-          <div class="processing-panel">
-            <el-icon class="processing-icon is-loading"><Loading /></el-icon>
-            <h3>正在转写音频</h3>
-            <p>长音频可能需要几分钟。请不要刷新页面，也不要重复提交同一个文件。</p>
-          </div>
-        </div>
-
         <div class="card-header">
           <div>
             <p class="card-label">Transcript</p>
@@ -368,6 +411,17 @@ onBeforeUnmount(() => {
             <small>先听一遍确认上传内容是否正确</small>
           </div>
           <audio :src="workspace.audioUrl" controls preload="metadata" class="audio-player" />
+        </div>
+
+        <div v-if="workLoading.transcribe" class="processing-banner" aria-live="polite">
+          <el-icon class="processing-icon is-loading"><Loading /></el-icon>
+          <div class="processing-copy">
+            <h3>正在转写音频</h3>
+            <p v-if="workspace.totalChunks > 1">
+              已完成 {{ workspace.completedChunks }} / {{ workspace.totalChunks }} 段，结果会按语音时间顺序持续追加到下方。
+            </p>
+            <p v-else>长音频可能需要几分钟。你可以继续播放或暂停当前音频，但不要重复提交同一个文件。</p>
+          </div>
         </div>
 
         <div class="action-row">
@@ -504,7 +558,6 @@ onBeforeUnmount(() => {
 .card,
 .workspace-card,
 .summary-card {
-  position: relative;
   padding: 30px;
   border: 1px solid rgba(37, 99, 235, 0.08);
   border-radius: 34px;
@@ -515,43 +568,32 @@ onBeforeUnmount(() => {
   backdrop-filter: blur(16px);
 }
 
-.processing-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 4;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  border-radius: 34px;
-  background: rgba(248, 250, 252, 0.86);
-  backdrop-filter: blur(8px);
-}
-
-.processing-panel {
-  width: min(420px, 100%);
-  padding: 28px 24px;
-  border: 1px solid rgba(37, 99, 235, 0.14);
-  border-radius: 24px;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 22px 50px rgba(15, 23, 42, 0.14);
-  text-align: center;
+.processing-banner {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 14px;
+  align-items: start;
+  margin-top: 18px;
+  padding: 18px 20px;
+  border: 1px solid rgba(37, 99, 235, 0.12);
+  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(239, 246, 255, 0.9), rgba(255, 255, 255, 0.92));
 }
 
 .processing-icon {
-  margin-bottom: 14px;
-  font-size: 2rem;
+  margin-top: 2px;
+  font-size: 1.5rem;
   color: #2563eb;
 }
 
-.processing-panel h3 {
-  margin-bottom: 10px;
+.processing-copy h3 {
+  margin-bottom: 6px;
 }
 
-.processing-panel p {
+.processing-copy p {
   margin: 0;
   color: #64748b;
-  line-height: 1.8;
+  line-height: 1.7;
 }
 
 .card-header {
