@@ -4,7 +4,6 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { fetchCurrentUser, loginUser, logoutUser, registerUser } from "./api/auth";
 import { summarizeMeeting, transcribeMeeting } from "./api/meeting";
 import AuthPanel from "./components/AuthPanel.vue";
-import DeliverySummary from "./components/DeliverySummary.vue";
 import PageHero from "./components/PageHero.vue";
 
 function safeParse(raw) {
@@ -50,19 +49,31 @@ const workspace = reactive({
   summary: null,
 });
 
-const projectSteps = [
-  "登录后上传会议音频",
-  "调用 faster-whisper 生成带时间戳的转写结果",
-  "调用 MiniMax 或兜底逻辑生成纪要、关键词和待办事项",
-  "把这条链路作为明天路演的主流程",
+const heroHighlights = [
+  {
+    title: "上传后立即进入处理",
+    description: "登录完成后就能直接把一段会议录音交给工作区，不需要额外切页。",
+  },
+  {
+    title: "保留分段时间戳",
+    description: "转写结果按时间组织，后面做检索、跳转和回放会更自然。",
+  },
+  {
+    title: "把重点沉淀成纪要",
+    description: "在原始转写之上提炼摘要、关键词和待办，不用再手动摘录第二遍。",
+  },
 ];
 
-const deliveryItems = [
-  "MySQL 用户注册、登录、退出与登录态保持",
-  "前端音频上传并调用转写接口",
-  "前端根据转写文本生成会议纪要",
-  "默认支持 MiniMax 摘要，未配置时自动走兜底摘要",
-  "后端修复了转写线程调用问题，主链路能真正执行",
+const heroNotes = [
+  "先登录，再进入会议工作台。",
+  "上传一段音频后，先看转写，再生成纪要。",
+  "整个界面只保留与会议整理直接相关的内容。",
+];
+
+const heroMetrics = [
+  { value: "01", label: "登录后直接开始" },
+  { value: "02", label: "转写与摘要同屏" },
+  { value: "03", label: "围绕会议内容展开" },
 ];
 
 const isAuthenticated = computed(() => Boolean(session.token && session.user));
@@ -230,11 +241,11 @@ onMounted(async () => {
   <main class="page-shell">
     <PageHero
       eyebrow="ASR Meeting Assistant"
-      title="智能会议助手"
-      intro="今天的目标不是只把页面搭起来，而是让“登录 -> 上传音频 -> 转写 -> 纪要”这条主流程真正能跑通，明天可以直接用于路演。"
-      card-label="明日路演主线"
-      card-title="建议按这 4 步演示"
-      :project-steps="projectSteps"
+      title="把会议录音整理成真正可用的内容"
+      intro="这不是一个展示型页面，而是一个真正用于整理会议信息的工作入口。上传录音、生成转写，再把重点、关键词和待办沉淀下来，整个过程尽量保持清晰、顺手、不过度打扰。"
+      :highlights="heroHighlights"
+      :notes="heroNotes"
+      :metrics="heroMetrics"
     />
 
     <el-alert
@@ -246,7 +257,7 @@ onMounted(async () => {
       :closable="false"
     />
 
-    <section class="card-grid top-grid">
+    <section class="auth-section">
       <AuthPanel
         v-model:active-tab="activeTab"
         :loading="authLoading"
@@ -255,26 +266,24 @@ onMounted(async () => {
         :login-form="loginForm"
         :register-form="registerForm"
         guest-label="账号中心"
-        guest-title="登录 / 注册"
-        guest-pill="MySQL 用户体系"
+        guest-title="进入会议工作区"
+        guest-pill="Account"
         authed-label="当前账号"
-        authed-pill="已登录"
+        authed-pill="Ready"
         @login="handleLogin"
         @register="handleRegister"
         @logout="handleLogout"
       />
-
-      <DeliverySummary label="交付说明" title="今天补齐的关键能力" :items="deliveryItems" />
     </section>
 
     <section class="card-grid workspace-grid" v-if="isAuthenticated">
       <article class="card workspace-card">
         <div class="card-header">
           <div>
-            <p class="card-label">会议工作台</p>
+            <p class="card-label">Transcript</p>
             <h2>上传音频并开始处理</h2>
           </div>
-          <span class="pill">可演示流程</span>
+          <span class="pill">Core Flow</span>
         </div>
 
         <label class="file-picker">
@@ -283,7 +292,7 @@ onMounted(async () => {
         </label>
 
         <p class="file-name" v-if="workspace.fileName">当前文件：{{ workspace.fileName }}</p>
-        <p class="helper-text" v-else>建议优先使用 `sample-data/audio` 里的短样本做明天的路演。</p>
+        <p class="helper-text" v-else>优先上传一段较短的会议片段，会更适合先验证转写和摘要体验。</p>
 
         <div class="action-row">
           <el-button type="primary" :loading="workLoading.transcribe" @click="handleTranscribe">
@@ -330,10 +339,10 @@ onMounted(async () => {
       <article class="card summary-card">
         <div class="card-header">
           <div>
-            <p class="card-label">智能纪要</p>
+            <p class="card-label">Summary</p>
             <h2>摘要、关键词与待办事项</h2>
           </div>
-          <span class="pill success">AI 输出</span>
+          <span class="pill success">AI Output</span>
         </div>
 
         <el-empty v-if="!workspace.summary" description="生成纪要后会在这里展示内容" />
@@ -366,14 +375,17 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+@import url("https://fonts.googleapis.com/css2?family=Calistoga&display=swap");
+
 :global(body) {
   margin: 0;
-  font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+  font-family: "Avenir Next", "PingFang SC", "Hiragino Sans GB", sans-serif;
+  background-color: #f8fafc;
   background:
-    radial-gradient(circle at top left, #ffd6a5 0%, transparent 28%),
-    radial-gradient(circle at top right, #d2f4ea 0%, transparent 24%),
-    linear-gradient(135deg, #f8efe3 0%, #edf6ff 100%);
-  color: #1d2a36;
+    radial-gradient(circle at top left, rgba(249, 115, 22, 0.16) 0%, transparent 24%),
+    radial-gradient(circle at top right, rgba(37, 99, 235, 0.16) 0%, transparent 28%),
+    linear-gradient(180deg, #fffdf9 0%, #f8fafc 45%, #f1f5f9 100%);
+  color: #1f2b3a;
 }
 
 :global(*) {
@@ -382,37 +394,56 @@ onMounted(async () => {
 
 .page-shell {
   min-height: 100vh;
-  padding: 48px 20px 56px;
+  padding: 48px 20px 84px;
+}
+
+.page-shell::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background:
+    linear-gradient(rgba(15, 23, 42, 0.015) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(15, 23, 42, 0.015) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.34), transparent 76%);
+  pointer-events: none;
 }
 
 .status-alert {
-  max-width: 1180px;
+  position: sticky;
+  top: 18px;
+  z-index: 4;
+  max-width: 980px;
   margin: 0 auto 24px;
 }
 
-.card-grid {
-  max-width: 1180px;
-  margin: 0 auto 20px;
-  display: grid;
-  gap: 20px;
+.auth-section {
+  max-width: 920px;
+  margin: 0 auto 34px;
 }
 
-.top-grid {
-  grid-template-columns: minmax(320px, 0.9fr) minmax(280px, 0.7fr);
+.card-grid {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: grid;
+  gap: 24px;
 }
 
 .workspace-grid {
-  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  grid-template-columns: minmax(0, 1.16fr) minmax(320px, 0.84fr);
 }
 
 .card,
 .workspace-card,
 .summary-card {
-  padding: 24px;
-  border-radius: 24px;
-  background: rgba(255, 255, 255, 0.84);
-  box-shadow: 0 18px 60px rgba(48, 60, 80, 0.12);
-  backdrop-filter: blur(10px);
+  padding: 30px;
+  border: 1px solid rgba(37, 99, 235, 0.08);
+  border-radius: 34px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(245, 248, 252, 0.8)),
+    rgba(255, 255, 255, 0.84);
+  box-shadow: 0 28px 64px rgba(15, 23, 42, 0.1);
+  backdrop-filter: blur(16px);
 }
 
 .card-header {
@@ -425,32 +456,35 @@ onMounted(async () => {
 
 .card-label {
   margin: 0 0 10px;
-  color: #915f00;
-  font-size: 0.9rem;
+  color: #64748b;
+  font-size: 0.82rem;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
 }
 
 h2,
 h3 {
   margin: 0;
+  font-family: "Calistoga", "Iowan Old Style", "Palatino Linotype", serif;
+  letter-spacing: -0.03em;
 }
 
 .pill {
   display: inline-flex;
   align-items: center;
-  padding: 8px 12px;
+  padding: 10px 14px;
   border-radius: 999px;
-  background: #fff3d2;
-  color: #8a5b00;
-  font-size: 0.88rem;
+  background: rgba(37, 99, 235, 0.12);
+  color: #2563eb;
+  font-size: 0.8rem;
   font-weight: 700;
+  letter-spacing: 0.08em;
 }
 
 .pill.success {
-  background: #dff5ea;
-  color: #0a6c47;
+  background: rgba(249, 115, 22, 0.14);
+  color: #c2410c;
 }
 
 .todo-list {
@@ -463,11 +497,11 @@ h3 {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 18px;
-  border: 1px dashed #cda861;
-  border-radius: 18px;
-  background: #fff9ed;
-  color: #7f5200;
+  padding: 20px;
+  border: 1px dashed rgba(37, 99, 235, 0.26);
+  border-radius: 24px;
+  background: linear-gradient(180deg, rgba(239, 246, 255, 0.95), rgba(255, 255, 255, 0.88));
+  color: #1d4ed8;
   font-weight: 700;
 }
 
@@ -478,7 +512,8 @@ h3 {
 .file-name,
 .helper-text {
   margin: 14px 0 0;
-  color: #546173;
+  color: #5b6d7f;
+  line-height: 1.8;
 }
 
 .action-row {
@@ -512,13 +547,14 @@ h3 {
 .segment-item {
   display: grid;
   gap: 6px;
-  padding: 12px;
-  border-radius: 14px;
-  background: #f7f8fb;
+  padding: 14px;
+  border-radius: 18px;
+  background: rgba(248, 250, 252, 0.9);
+  border: 1px solid rgba(37, 99, 235, 0.06);
 }
 
 .segment-time {
-  color: #915f00;
+  color: #2563eb;
   font-size: 0.88rem;
   font-weight: 700;
 }
@@ -539,8 +575,22 @@ h3 {
   margin-top: 12px;
 }
 
+:deep(.el-tag) {
+  padding: 0 14px;
+  border-radius: 999px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 @media (max-width: 980px) {
-  .top-grid,
   .workspace-grid {
     grid-template-columns: 1fr;
   }
