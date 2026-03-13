@@ -48,6 +48,7 @@ MINIMAX_BASE_URL=https://api.minimaxi.com/v1
 GROQ_API_KEY=你的 Groq Key
 GROQ_BASE_URL=https://api.groq.com/openai/v1
 GROQ_TRANSCRIPTION_MODEL=whisper-large-v3
+GROQ_MAX_UPLOAD_MB=24
 DATABASE_URL=mysql+mysqlconnector://asr_user:asr_password@127.0.0.1:3307/asr_meeting
 ```
 
@@ -55,6 +56,7 @@ DATABASE_URL=mysql+mysqlconnector://asr_user:asr_password@127.0.0.1:3307/asr_mee
 
 - `GROQ_TRANSCRIPTION_MODEL` 推荐保持 `whisper-large-v3`
 - 现在网页端长音频转写不会再被前端 2 分钟超时提前中断
+- 超过 `GROQ_MAX_UPLOAD_MB` 的 `.wav` 文件会由后端自动切片后再转录
 
 ## 五、启动后端
 
@@ -125,6 +127,10 @@ npm run dev
 
 长音频本身就需要更多时间。现在转录走的是在线 `Groq whisper-large-v3`，前端不会再因为 2 分钟超时直接报错。
 
-### 4. 页面显示在转写中
+### 4. 长 wav 转写失败
+
+当前后端会自动切片处理超出 Groq 上传上限的 `.wav` 文件。如果你上传的是 `mp3`、`m4a`、`flac` 且文件过大，建议先压缩、裁剪，或转成较小的文件再上传。
+
+### 5. 页面显示在转写中
 
 这是正常状态。现在页面允许你在转写过程中继续操作音频播放器，但不要重复提交同一个文件。
