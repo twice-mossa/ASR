@@ -331,14 +331,6 @@ onBeforeUnmount(() => {
 
     <section class="card-grid workspace-grid" v-if="isAuthenticated">
       <article class="card workspace-card">
-        <div v-if="workLoading.transcribe" class="processing-overlay" aria-live="polite">
-          <div class="processing-panel">
-            <el-icon class="processing-icon is-loading"><Loading /></el-icon>
-            <h3>正在转写音频</h3>
-            <p>长音频可能需要几分钟。请不要刷新页面，也不要重复提交同一个文件。</p>
-          </div>
-        </div>
-
         <div class="card-header">
           <div>
             <p class="card-label">Transcript</p>
@@ -368,6 +360,14 @@ onBeforeUnmount(() => {
             <small>先听一遍确认上传内容是否正确</small>
           </div>
           <audio :src="workspace.audioUrl" controls preload="metadata" class="audio-player" />
+        </div>
+
+        <div v-if="workLoading.transcribe" class="processing-banner" aria-live="polite">
+          <el-icon class="processing-icon is-loading"><Loading /></el-icon>
+          <div class="processing-copy">
+            <h3>正在转写音频</h3>
+            <p>长音频可能需要几分钟。你可以继续播放或暂停当前音频，但不要重复提交同一个文件。</p>
+          </div>
         </div>
 
         <div class="action-row">
@@ -504,7 +504,6 @@ onBeforeUnmount(() => {
 .card,
 .workspace-card,
 .summary-card {
-  position: relative;
   padding: 30px;
   border: 1px solid rgba(37, 99, 235, 0.08);
   border-radius: 34px;
@@ -515,43 +514,32 @@ onBeforeUnmount(() => {
   backdrop-filter: blur(16px);
 }
 
-.processing-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 4;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  border-radius: 34px;
-  background: rgba(248, 250, 252, 0.86);
-  backdrop-filter: blur(8px);
-}
-
-.processing-panel {
-  width: min(420px, 100%);
-  padding: 28px 24px;
-  border: 1px solid rgba(37, 99, 235, 0.14);
-  border-radius: 24px;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 22px 50px rgba(15, 23, 42, 0.14);
-  text-align: center;
+.processing-banner {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 14px;
+  align-items: start;
+  margin-top: 18px;
+  padding: 18px 20px;
+  border: 1px solid rgba(37, 99, 235, 0.12);
+  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(239, 246, 255, 0.9), rgba(255, 255, 255, 0.92));
 }
 
 .processing-icon {
-  margin-bottom: 14px;
-  font-size: 2rem;
+  margin-top: 2px;
+  font-size: 1.5rem;
   color: #2563eb;
 }
 
-.processing-panel h3 {
-  margin-bottom: 10px;
+.processing-copy h3 {
+  margin-bottom: 6px;
 }
 
-.processing-panel p {
+.processing-copy p {
   margin: 0;
   color: #64748b;
-  line-height: 1.8;
+  line-height: 1.7;
 }
 
 .card-header {
