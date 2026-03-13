@@ -5,9 +5,9 @@ import io
 import logging
 import os
 import tempfile
-import wave
 
 import httpx
+import soundfile as sf
 from fastapi import HTTPException, UploadFile
 
 from app.core.config import settings
@@ -144,36 +144,48 @@ async def _transcribe_with_groq_single(
 
 
 def _split_wav_bytes(raw: bytes, max_bytes: int) -> list[tuple[float, bytes]]:
-    with wave.open(io.BytesIO(raw), "rb") as reader:
-        params = reader.getparams()
-        channels = reader.getnchannels()
-        sampwidth = reader.getsampwidth()
-        framerate = reader.getframerate()
-        total_frames = reader.getnframes()
+    try:
+        with sf.SoundFile(io.BytesIO(raw)) as reader:
+            samplerate = reader.samplerate
+            channels = reader.channels
+            subtype = reader.subtype or "PCM_16"
+            format_name = reader.format or "WAV"
+            total_frames = len(reader)
 
-        bytes_per_frame = channels * sampwidth
-        if bytes_per_frame <= 0 or framerate <= 0:
-            raise HTTPException(status_code=400, detail="Unsupported WAV file")
+            if samplerate <= 0 or channels <= 0:
+                raise HTTPException(status_code=400, detail="Unsupported WAV file")
 
-        # Reserve some room for headers and multipart overhead.
-        target_bytes = max(4 * 1024 * 1024, max_bytes - 512 * 1024)
-        frames_per_chunk = max(1, target_bytes // bytes_per_frame)
+            if subtype == "PCM_16":
+                bytes_per_channel = 2
+            elif subtype == "PCM_24":
+                bytes_per_channel = 3
+            elif subtype in {"PCM_32", "FLOAT"}:
+                bytes_per_channel = 4
+            elif subtype == "DOUBLE":
+                bytes_per_channel = 8
+            else:
+                bytes_per_channel = 2
 
-        chunks: list[tuple[float, bytes]] = []
-        frame_cursor = 0
+            bytes_per_frame = channels * bytes_per_channel
 
-        while frame_cursor < total_frames:
-            frame_count = min(frames_per_chunk, total_frames - frame_cursor)
-            frames = reader.readframes(frame_count)
+            target_bytes = max(4 * 1024 * 1024, max_bytes - 512 * 1024)
+            frames_per_chunk = max(1, target_bytes // bytes_per_frame)
 
-            buffer = io.BytesIO()
-            with wave.open(buffer, "wb") as writer:
-                writer.setparams(params)
-                writer.writeframes(frames)
+            chunks: list[tuple[float, bytes]] = []
+            frame_cursor = 0
 
-            start_seconds = frame_cursor / framerate
-            chunks.append((start_seconds, buffer.getvalue()))
-            frame_cursor += frame_count
+            while frame_cursor < total_frames:
+                frame_count = min(frames_per_chunk, total_frames - frame_cursor)
+                frames = reader.read(frame_count, dtype="float32", always_2d=True)
+
+                buffer = io.BytesIO()
+                sf.write(buffer, frames, samplerate, format="WAV", subtype=subtype)
+
+                start_seconds = frame_cursor / samplerate
+                chunks.append((start_seconds, buffer.getvalue()))
+                frame_cursor += frame_count
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid WAV file: {exc}") from exc
 
     return chunks
 
@@ -184,10 +196,7 @@ async def _transcribe_large_wav_with_groq(
     raw: bytes,
     max_bytes: int,
 ) -> TranscriptResponse:
-    try:
-        chunks = await asyncio.to_thread(_split_wav_bytes, raw, max_bytes)
-    except wave.Error as exc:
-        raise HTTPException(status_code=400, detail=f"Invalid WAV file: {exc}") from exc
+    chunks = await asyncio.to_thread(_split_wav_bytes, raw, max_bytes)
 
     logger.info("Chunking large WAV for Groq transcription: %s chunks", len(chunks))
 
