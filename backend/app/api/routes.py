@@ -1,7 +1,12 @@
-from fastapi import APIRouter, File, Header, UploadFile
+from fastapi import APIRouter, File, Form, Header, UploadFile
+
+from app.agents.graph import run_meeting_agent
+from app.schemas.agent import AgentRunResponse
 
 from app.schemas.auth import AuthResponse, LoginRequest, LogoutResponse, RegisterRequest, UserProfile
 from app.schemas.meeting import (
+    EmailDeliveryRequest,
+    EmailDeliveryResponse,
     MeetingSummaryResponse,
     SummaryRequest,
     TranscriptJobCreateResponse,
@@ -9,6 +14,7 @@ from app.schemas.meeting import (
     TranscriptResponse,
 )
 from app.services.auth_service import get_current_user, login_user, logout_user, register_user
+from app.services.email_service import send_summary_email
 from app.services.minimax_service import build_summary
 from app.services.transcription_service import get_transcription_job, start_transcription_job, transcribe_audio
 
@@ -71,3 +77,30 @@ async def create_summary(payload: SummaryRequest) -> MeetingSummaryResponse:
     - **transcribed_text**: The full text of the meeting transcription.
     """
     return await build_summary(payload.transcribed_text)
+
+
+@router.post("/summary/email", response_model=EmailDeliveryResponse)
+def email_summary(
+    payload: EmailDeliveryRequest,
+    authorization: str | None = Header(default=None),
+) -> EmailDeliveryResponse:
+    current_user = get_current_user(authorization)
+    return send_summary_email(payload, current_user)
+
+
+@router.post("/agent/run", response_model=AgentRunResponse)
+async def run_agent_flow(
+    file: UploadFile = File(...),
+    summary_mode: str = Form(default="general"),
+    scene: str = Form(default="general"),
+) -> AgentRunResponse:
+    filename = file.filename or "unknown.wav"
+    raw = await file.read()
+    content_type = file.content_type or "application/octet-stream"
+    return await run_meeting_agent(
+        filename=filename,
+        raw=raw,
+        content_type=content_type,
+        summary_mode=summary_mode,
+        scene=scene,
+    )

@@ -44,3 +44,27 @@ export async function summarizeMeeting(text) {
   });
   return data;
 }
+
+export async function runMeetingAgent(file, summaryMode = "general", scene = "general") {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("summary_mode", summaryMode);
+  formData.append("scene", scene);
+
+  const { data } = await apiClient.post("/agent/run", formData, {
+    timeout: 0,
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+  });
+  return data;
+}
+
+export async function emailMeetingSummary(token, payload) {
+  const { data } = await apiClient.post("/summary/email", payload, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  return data;
+}

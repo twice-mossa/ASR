@@ -73,13 +73,39 @@ async def build_summary(text: str) -> MeetingSummaryResponse:
         "不要输出任何其他解释性文字。"
     )
     
+    return await build_summary_with_guidance(text, system_prompt)
+
+
+async def build_summary_with_guidance(text: str, guidance: str) -> MeetingSummaryResponse:
+    if not text:
+        return _fallback_summarize("")
+
+    if not settings.minimax_api_key:
+        logger.warning("MiniMax API key not set. Using fallback.")
+        return _fallback_summarize(text)
+
+    base_url = getattr(settings, "minimax_base_url", "https://api.minimaxi.com/v1")
+    url = f"{base_url.rstrip('/')}/chat/completions"
+
+    headers = {
+        "Authorization": f"Bearer {settings.minimax_api_key}",
+        "Content-Type": "application/json",
+    }
+
+    structured_guidance = (
+        f"{guidance}\n\n"
+        "请严格输出 JSON 格式，格式如下：\n"
+        '{"summary": "...", "keywords": ["...", "..."], "todos": ["...", "..."]}\n'
+        "不要输出任何其他解释性文字。"
+    )
+
     user_prompt = f"以下是会议转写文本：\n{text}"
-    
+
     data = {
         "model": "MiniMax-M2.5",
         "temperature": 0.1,
         "messages": [
-            {"role": "system", "content": system_prompt},
+            {"role": "system", "content": structured_guidance},
             {"role": "user", "content": user_prompt},
         ],
         # Some providers support response_format={"type": "json_object"}

@@ -39,3 +39,18 @@ class MeetingSummaryResponse(BaseModel):
     summary: str
     keywords: list[str]
     todos: list[str]
+
+
+class EmailDeliveryRequest(BaseModel):
+    transcript_text: str
+    summary: str
+    keywords: list[str] = Field(default_factory=list)
+    todos: list[str] = Field(default_factory=list)
+    summary_mode: str = "general"
+    agent_name: str = ""
+    scene: str = "general"
+
+
+class EmailDeliveryResponse(BaseModel):
+    recipient: str
+    message: str

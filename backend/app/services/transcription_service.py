@@ -502,4 +502,11 @@ async def transcribe_audio(file: UploadFile) -> TranscriptResponse:
         raise HTTPException(status_code=400, detail="Audio file is empty")
 
     content_type = file.content_type or "application/octet-stream"
+    return await transcribe_audio_bytes(filename=filename, raw=raw, content_type=content_type)
+
+
+async def transcribe_audio_bytes(*, filename: str, raw: bytes, content_type: str) -> TranscriptResponse:
+    if not raw:
+        raise HTTPException(status_code=400, detail="Audio file is empty")
+
     return await _transcribe_from_bytes(filename=filename, raw=raw, content_type=content_type)

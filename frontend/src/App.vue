@@ -4,7 +4,7 @@ import { ElNotification } from "element-plus";
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 
 import { fetchCurrentUser, loginUser, logoutUser, registerUser } from "./api/auth";
-import { getTranscriptionJob, startTranscriptionJob, summarizeMeeting } from "./api/meeting";
+import { emailMeetingSummary, runMeetingAgent, summarizeMeeting } from "./api/meeting";
 import AuthPanel from "./components/AuthPanel.vue";
 import PageHero from "./components/PageHero.vue";
 
@@ -22,10 +22,10 @@ function safeParse(raw) {
 
 const activeTab = ref("login");
 const authLoading = ref(false);
-const activeTranscriptionJobId = ref("");
 const workLoading = reactive({
   transcribe: false,
   summary: false,
+  email: false,
 });
 const session = reactive({
   token: localStorage.getItem("auth_token") || "",
@@ -51,38 +51,69 @@ const workspace = reactive({
   transcriptionStatus: "idle",
   completedChunks: 0,
   totalChunks: 1,
+  agentName: "",
+  agentPrompt: "",
+  summaryMode: "general",
+  scene: "general",
+  toolsUsed: [],
+  trace: [],
+  speakerTurns: [],
+  inspection: null,
+  presentationSections: [],
+  activeSpeaker: "all",
 });
 
 const heroHighlights = [
   {
-    title: "上传后立即进入处理",
-    description: "登录完成后就能直接把一段会议录音交给工作区，不需要额外切页。",
+    title: "智能体调度工具链",
+    description: "先检测音频，再按时长和大小决定直传或长音频策略，不再是单接口直调。",
   },
   {
-    title: "保留分段时间戳",
-    description: "转写结果按时间组织，后面做检索、跳转和回放会更自然。",
+    title: "说话人分段可讲可演示",
+    description: "转写结果保留时间戳，并给出轻量说话人标签，便于老师看出处理链条。",
   },
   {
-    title: "把重点沉淀成纪要",
-    description: "在原始转写之上提炼摘要、关键词和待办，不用再手动摘录第二遍。",
+    title: "多模式会议智能体",
+    description: "同一份转写可以按通用秘书、项目推进、领导汇报三种模式生成不同风格输出。",
   },
 ];
 
 const heroNotes = [
-  "先登录，再进入会议工作台。",
-  "上传一段音频后，先看转写，再生成纪要。",
-  "整个界面只保留与会议整理直接相关的内容。",
+  "先由 Agent 检查音频时长、声道与大小。",
+  "长音频会走分段并发策略，短音频直接转写。",
+  "再根据模式切换不同纪要智能体输出。",
 ];
 
 const heroMetrics = [
-  { value: "01", label: "登录后直接开始" },
-  { value: "02", label: "转写与摘要同屏" },
-  { value: "03", label: "围绕会议内容展开" },
+  { value: "01", label: "Audio Inspect" },
+  { value: "02", label: "ASR + Speaker" },
+  { value: "03", label: "Multi-Agent Summary" },
 ];
 
 const isAuthenticated = computed(() => Boolean(session.token && session.user));
 const canGenerateSummary = computed(() => Boolean(workspace.transcript?.text) && !workLoading.transcribe);
 const canPreviewAudio = computed(() => Boolean(workspace.audioUrl));
+const hasAgentTrace = computed(() => workspace.trace.length > 0);
+const hasSpeakerTurns = computed(() => workspace.speakerTurns.length > 0);
+const hasPresentationSections = computed(() => workspace.presentationSections.length > 0);
+const speakerOptions = computed(() => {
+  const values = new Set(workspace.speakerTurns.map((item) => item.speaker));
+  return ["all", ...values];
+});
+const filteredSpeakerTurns = computed(() => {
+  if (workspace.activeSpeaker === "all") {
+    return workspace.speakerTurns;
+  }
+  return workspace.speakerTurns.filter((item) => item.speaker === workspace.activeSpeaker);
+});
+const summaryModeLabel = computed(() => {
+  const modeMap = {
+    general: "通用会议秘书",
+    project: "项目推进智能体",
+    executive: "领导汇报智能体",
+  };
+  return modeMap[workspace.summaryMode] || "通用会议秘书";
+});
 
 function notify(message, type = "success", title = "通知") {
   ElNotification({
@@ -114,7 +145,6 @@ function resolveError(error, fallback) {
 
 function resetWorkspace() {
   revokeAudioUrl();
-  activeTranscriptionJobId.value = "";
   workspace.file = null;
   workspace.fileName = "";
   workspace.audioUrl = "";
@@ -124,6 +154,14 @@ function resetWorkspace() {
   workspace.transcriptionStatus = "idle";
   workspace.completedChunks = 0;
   workspace.totalChunks = 1;
+  workspace.agentName = "";
+  workspace.agentPrompt = "";
+  workspace.toolsUsed = [];
+  workspace.trace = [];
+  workspace.speakerTurns = [];
+  workspace.inspection = null;
+  workspace.presentationSections = [];
+  workspace.activeSpeaker = "all";
 }
 
 function revokeAudioUrl() {
@@ -134,7 +172,6 @@ function revokeAudioUrl() {
 
 function applySelectedFile(file) {
   revokeAudioUrl();
-  activeTranscriptionJobId.value = "";
   workspace.file = file || null;
   workspace.fileName = file?.name || "";
   workspace.audioUrl = file ? URL.createObjectURL(file) : "";
@@ -144,6 +181,14 @@ function applySelectedFile(file) {
   workspace.transcriptionStatus = "idle";
   workspace.completedChunks = 0;
   workspace.totalChunks = 1;
+  workspace.agentName = "";
+  workspace.agentPrompt = "";
+  workspace.toolsUsed = [];
+  workspace.trace = [];
+  workspace.speakerTurns = [];
+  workspace.inspection = null;
+  workspace.presentationSections = [];
+  workspace.activeSpeaker = "all";
 }
 
 function isSupportedAudio(file) {
@@ -251,7 +296,7 @@ async function handleLogout() {
   }
 }
 
-async function handleTranscribe() {
+async function handleAgentRun() {
   if (!workspace.file) {
     notify("请先选择音频文件", "warning", "缺少文件");
     return;
@@ -268,50 +313,36 @@ async function handleTranscribe() {
   workspace.transcriptionStatus = "queued";
   workspace.completedChunks = 0;
   workspace.totalChunks = 1;
-  notify("已开始转写。长音频可能需要几分钟，请等待结果返回。", "info", "开始转写");
+  workspace.trace = [];
+  workspace.speakerTurns = [];
+  workspace.toolsUsed = [];
+  workspace.inspection = null;
+  workspace.presentationSections = [];
+  workspace.activeSpeaker = "all";
+  notify("智能体已开始调度工具链。长音频可能需要几分钟，请等待返回。", "info", "Agent 启动");
 
   try {
-    const job = await startTranscriptionJob(workspace.file);
-    activeTranscriptionJobId.value = job.job_id;
-    await pollTranscriptionJob(job.job_id);
-    notify("音频转写完成", "success", "转写完成");
+    const result = await runMeetingAgent(workspace.file, workspace.summaryMode, workspace.scene);
+    workspace.transcriptionStatus = "completed";
+    workspace.agentName = result.agent_name || "";
+    workspace.agentPrompt = result.agent_prompt || "";
+    workspace.toolsUsed = result.tools_used || [];
+    workspace.trace = result.trace || [];
+    workspace.speakerTurns = result.speaker_turns || [];
+    workspace.inspection = result.inspection || null;
+    workspace.presentationSections = result.presentation_sections || [];
+    workspace.activeSpeaker = "all";
+    workspace.transcript = result.transcript || workspace.transcript;
+    workspace.summary = result.summary || null;
+    notify("Agent 执行完成，已返回转写、说话人分段和纪要。", "success", "处理完成");
   } catch (error) {
     notify(
-      resolveError(error, "转写失败。若音频较长，请先确认后端仍在运行并等待更久。"),
+      resolveError(error, "Agent 执行失败。请检查后端服务与模型配置。"),
       "error",
-      "转写失败",
+      "执行失败",
     );
   } finally {
     workLoading.transcribe = false;
-  }
-}
-
-function applyTranscriptionStatus(status) {
-  workspace.transcriptionStatus = status.status || "processing";
-  workspace.completedChunks = status.completed_chunks || 0;
-  workspace.totalChunks = status.total_chunks || 1;
-  workspace.transcript = {
-    filename: status.filename || workspace.fileName,
-    language: status.language || "zh",
-    text: status.text || "",
-    segments: status.segments || [],
-  };
-}
-
-async function pollTranscriptionJob(jobId) {
-  while (activeTranscriptionJobId.value === jobId) {
-    const status = await getTranscriptionJob(jobId);
-    applyTranscriptionStatus(status);
-
-    if (status.status === "completed") {
-      return;
-    }
-
-    if (status.status === "failed") {
-      throw new Error(status.error || "转写失败");
-    }
-
-    await new Promise((resolve) => window.setTimeout(resolve, 1500));
   }
 }
 
@@ -329,6 +360,31 @@ async function handleSummary() {
     notify(resolveError(error, "摘要生成失败，请检查 API 配置"), "error", "摘要失败");
   } finally {
     workLoading.summary = false;
+  }
+}
+
+async function handleEmailSummary() {
+  if (!workspace.summary || !workspace.transcript?.text || !session.token) {
+    notify("请先完成 Agent 执行或摘要生成，再发送邮件。", "warning", "无法发送");
+    return;
+  }
+
+  workLoading.email = true;
+  try {
+    const result = await emailMeetingSummary(session.token, {
+      transcript_text: workspace.transcript.text,
+      summary: workspace.summary.summary,
+      keywords: workspace.summary.keywords || [],
+      todos: workspace.summary.todos || [],
+      summary_mode: workspace.summaryMode,
+      agent_name: workspace.agentName,
+      scene: workspace.scene,
+    });
+    notify(result.message || `已发送到 ${result.recipient}`, "success", "邮件发送成功");
+  } catch (error) {
+    notify(resolveError(error, "邮件发送失败，请检查 SMTP 配置"), "error", "发送失败");
+  } finally {
+    workLoading.email = false;
   }
 }
 
@@ -390,6 +446,32 @@ onBeforeUnmount(() => {
           <span class="pill">Core Flow</span>
         </div>
 
+        <div class="agent-control-grid">
+          <label class="field-group">
+            <span>摘要模式</span>
+            <el-select v-model="workspace.summaryMode" placeholder="选择智能体模式">
+              <el-option label="通用会议秘书" value="general" />
+              <el-option label="项目推进智能体" value="project" />
+              <el-option label="领导汇报智能体" value="executive" />
+            </el-select>
+          </label>
+
+          <label class="field-group">
+            <span>业务场景</span>
+            <el-select v-model="workspace.scene" placeholder="选择业务场景">
+              <el-option label="通用场景" value="general" />
+              <el-option label="校园会议" value="campus" />
+              <el-option label="企业项目" value="enterprise" />
+              <el-option label="产品评审" value="product" />
+            </el-select>
+          </label>
+        </div>
+
+        <div class="agent-banner">
+          <strong>{{ summaryModeLabel }}</strong>
+          <span>当前将通过 Agent 统一调度音频检测、转写、说话人分段和纪要生成。</span>
+        </div>
+
         <label
           class="file-picker"
           :class="{ 'file-picker--dragging': workspace.isDragging }"
@@ -425,8 +507,8 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="action-row">
-          <el-button type="primary" :loading="workLoading.transcribe" @click="handleTranscribe">
-            1. 开始转写
+          <el-button type="primary" :loading="workLoading.transcribe" @click="handleAgentRun">
+            1. Agent 执行
           </el-button>
           <el-button
             type="success"
@@ -434,9 +516,34 @@ onBeforeUnmount(() => {
             :loading="workLoading.summary"
             @click="handleSummary"
           >
-            2. 生成纪要
+            2. 单独生成纪要
           </el-button>
           <el-button plain @click="resetWorkspace">重置</el-button>
+        </div>
+
+        <div v-if="workspace.inspection" class="inspection-panel">
+          <div class="inspection-panel__header">
+            <h3>音频检测</h3>
+            <span>{{ workspace.inspection.processing_strategy }}</span>
+          </div>
+          <div class="inspection-grid">
+            <div class="inspection-item">
+              <span>时长</span>
+              <strong>{{ workspace.inspection.duration_seconds }}s</strong>
+            </div>
+            <div class="inspection-item">
+              <span>采样率</span>
+              <strong>{{ workspace.inspection.sample_rate }} Hz</strong>
+            </div>
+            <div class="inspection-item">
+              <span>声道</span>
+              <strong>{{ workspace.inspection.channels }}</strong>
+            </div>
+            <div class="inspection-item">
+              <span>建议分段</span>
+              <strong>{{ workspace.inspection.suggested_chunk_seconds }}s</strong>
+            </div>
+          </div>
         </div>
 
         <div class="result-block">
@@ -464,6 +571,35 @@ onBeforeUnmount(() => {
             </div>
           </template>
         </div>
+
+        <div v-if="hasSpeakerTurns" class="speaker-block">
+          <div class="result-header">
+            <h3>说话人分段</h3>
+            <span>{{ filteredSpeakerTurns.length }} / {{ workspace.speakerTurns.length }} 段</span>
+          </div>
+
+          <div class="speaker-filter-row">
+            <el-radio-group v-model="workspace.activeSpeaker" size="small">
+              <el-radio-button v-for="speaker in speakerOptions" :key="speaker" :label="speaker">
+                {{ speaker === "all" ? "全部" : speaker }}
+              </el-radio-button>
+            </el-radio-group>
+          </div>
+
+          <div class="speaker-list">
+            <div
+              v-for="turn in filteredSpeakerTurns"
+              :key="`${turn.speaker}-${turn.start}-${turn.end}`"
+              class="speaker-item"
+            >
+              <div class="speaker-meta">
+                <strong>{{ turn.speaker }}</strong>
+                <span>{{ turn.start.toFixed(1) }}s - {{ turn.end.toFixed(1) }}s</span>
+              </div>
+              <p>{{ turn.text }}</p>
+            </div>
+          </div>
+        </div>
       </article>
 
       <article class="card summary-card">
@@ -475,30 +611,82 @@ onBeforeUnmount(() => {
           <span class="pill success">AI Output</span>
         </div>
 
+        <div v-if="workspace.agentName" class="agent-meta-card">
+          <strong>{{ workspace.agentName }}</strong>
+          <p>工具链：{{ workspace.toolsUsed.join(" -> ") }}</p>
+        </div>
+
+        <div v-if="workspace.summary && session.user?.email" class="email-action-card">
+          <div>
+            <strong>发送纪要到邮箱</strong>
+            <p>当前登录用户邮箱：{{ session.user.email }}</p>
+          </div>
+          <el-button type="primary" :loading="workLoading.email" @click="handleEmailSummary">
+            发送到我的邮箱
+          </el-button>
+        </div>
+
+        <div v-if="workspace.agentPrompt" class="agent-prompt-card">
+          <div class="result-header">
+            <h3>Agent Prompt</h3>
+            <span>{{ summaryModeLabel }}</span>
+          </div>
+          <p>{{ workspace.agentPrompt }}</p>
+        </div>
+
         <el-empty v-if="!workspace.summary" description="生成纪要后会在这里展示内容" />
 
         <template v-else>
-          <div class="summary-section">
-            <h3>会议摘要</h3>
-            <p>{{ workspace.summary.summary }}</p>
+          <template v-if="hasPresentationSections">
+            <div v-for="section in workspace.presentationSections" :key="section.title" class="summary-section">
+              <h3>{{ section.title }}</h3>
+              <p v-if="section.summary">{{ section.summary }}</p>
+              <ul v-if="section.bullets?.length" class="todo-list">
+                <li v-for="item in section.bullets" :key="item">{{ item }}</li>
+              </ul>
+            </div>
+          </template>
+
+          <template v-else>
+            <div class="summary-section">
+              <h3>会议摘要</h3>
+              <p>{{ workspace.summary.summary }}</p>
+            </div>
+
+            <div class="summary-section">
+              <h3>关键词</h3>
+              <div class="tag-list">
+                <el-tag v-for="keyword in workspace.summary.keywords" :key="keyword" type="warning" effect="light">
+                  {{ keyword }}
+                </el-tag>
+              </div>
+            </div>
+
+            <div class="summary-section">
+              <h3>待办事项</h3>
+              <ul class="todo-list">
+                <li v-for="todo in workspace.summary.todos" :key="todo">{{ todo }}</li>
+              </ul>
+            </div>
+          </template>
+        </template>
+
+        <div v-if="hasAgentTrace" class="trace-block">
+          <div class="result-header">
+            <h3>Agent 执行轨迹</h3>
+            <span>{{ workspace.trace.length }} steps</span>
           </div>
 
-          <div class="summary-section">
-            <h3>关键词</h3>
-            <div class="tag-list">
-              <el-tag v-for="keyword in workspace.summary.keywords" :key="keyword" type="warning" effect="light">
-                {{ keyword }}
-              </el-tag>
+          <div class="trace-list">
+            <div v-for="item in workspace.trace" :key="`${item.step}-${item.tool_name}`" class="trace-item">
+              <div class="trace-item__top">
+                <strong>{{ item.step }}</strong>
+                <span>{{ item.tool_name }}</span>
+              </div>
+              <p>{{ item.detail }}</p>
             </div>
           </div>
-
-          <div class="summary-section">
-            <h3>待办事项</h3>
-            <ul class="todo-list">
-              <li v-for="todo in workspace.summary.todos" :key="todo">{{ todo }}</li>
-            </ul>
-          </div>
-        </template>
+        </div>
       </article>
     </section>
   </main>
@@ -648,11 +836,129 @@ h3 {
   color: #0f766e;
 }
 
+.agent-control-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.field-group {
+  display: grid;
+  gap: 8px;
+}
+
+.field-group span {
+  color: rgba(15, 23, 42, 0.52);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.agent-banner {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 18px;
+  padding: 16px 18px;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 24px;
+  background: linear-gradient(180deg, rgba(239, 246, 255, 0.76), rgba(255, 255, 255, 0.8));
+}
+
+.agent-banner strong {
+  color: #0f172a;
+}
+
+.agent-banner span {
+  color: rgba(15, 23, 42, 0.6);
+  line-height: 1.7;
+}
+
 .todo-list {
   margin: 0;
   padding-left: 20px;
   line-height: 1.9;
   color: rgba(15, 23, 42, 0.72);
+}
+
+.inspection-panel,
+.speaker-block,
+.trace-block,
+.agent-meta-card,
+.agent-prompt-card,
+.email-action-card {
+  margin-top: 24px;
+  padding: 20px;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.inspection-panel__header,
+.trace-item__top,
+.speaker-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.inspection-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.inspection-item,
+.trace-item,
+.speaker-item {
+  padding: 14px 16px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(15, 23, 42, 0.05);
+}
+
+.inspection-item span,
+.trace-item span,
+.speaker-meta span {
+  color: rgba(15, 23, 42, 0.48);
+  font-size: 0.8rem;
+}
+
+.inspection-item strong,
+.trace-item strong,
+.speaker-meta strong,
+.agent-meta-card strong {
+  color: #0f172a;
+}
+
+.trace-list,
+.speaker-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.speaker-filter-row {
+  margin-top: 14px;
+}
+
+.trace-item p,
+.speaker-item p,
+.agent-meta-card p,
+.agent-prompt-card p,
+.email-action-card p {
+  margin: 10px 0 0;
+  color: rgba(15, 23, 42, 0.68);
+  line-height: 1.8;
+}
+
+.email-action-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
 }
 
 .file-picker {
@@ -832,6 +1138,35 @@ h3 {
   color: #334155;
 }
 
+:deep(.el-select__wrapper) {
+  min-height: 48px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.05) inset;
+}
+
+:deep(.el-radio-group) {
+  flex-wrap: wrap;
+}
+
+:deep(.el-radio-button__inner) {
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.72);
+  color: #334155;
+  box-shadow: none;
+}
+
+:deep(.el-radio-button:first-child .el-radio-button__inner),
+:deep(.el-radio-button:last-child .el-radio-button__inner) {
+  border-radius: 999px;
+}
+
+:deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
+  background: linear-gradient(180deg, #0f172a, #1e293b);
+  border-color: transparent;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -844,6 +1179,11 @@ h3 {
 
 @media (max-width: 980px) {
   .workspace-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .agent-control-grid,
+  .inspection-grid {
     grid-template-columns: 1fr;
   }
 }
