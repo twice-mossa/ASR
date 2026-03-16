@@ -2,12 +2,15 @@ from fastapi import APIRouter, File, Header, UploadFile
 
 from app.schemas.auth import AuthResponse, LoginRequest, LogoutResponse, RegisterRequest, UserProfile
 from app.schemas.meeting import (
+    AgentAnalyzeRequest,
+    AgentMeetingReport,
     MeetingSummaryResponse,
     SummaryRequest,
     TranscriptJobCreateResponse,
     TranscriptJobStatusResponse,
     TranscriptResponse,
 )
+from app.services.agent_service import run_meeting_agent
 from app.services.auth_service import get_current_user, login_user, logout_user, register_user
 from app.services.minimax_service import build_summary
 from app.services.transcription_service import get_transcription_job, start_transcription_job, transcribe_audio
@@ -71,3 +74,18 @@ async def create_summary(payload: SummaryRequest) -> MeetingSummaryResponse:
     - **transcribed_text**: The full text of the meeting transcription.
     """
     return await build_summary(payload.transcribed_text)
+
+
+@router.post("/agent/analyze", response_model=AgentMeetingReport)
+async def agent_analyze(payload: AgentAnalyzeRequest) -> AgentMeetingReport:
+    """
+    Run a tool-calling agent to produce an enriched meeting report.
+
+    The agent iteratively calls specialized analysis tools (extract_summary,
+    extract_key_decisions, extract_action_items, extract_keywords,
+    finish_report) and returns a structured report with richer fields than the
+    basic /summary endpoint.
+
+    - **transcribed_text**: The full text of the meeting transcription.
+    """
+    return await run_meeting_agent(payload.transcribed_text)

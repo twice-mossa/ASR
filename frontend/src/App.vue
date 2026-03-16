@@ -4,7 +4,7 @@ import { ElNotification } from "element-plus";
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 
 import { fetchCurrentUser, loginUser, logoutUser, registerUser } from "./api/auth";
-import { getTranscriptionJob, startTranscriptionJob, summarizeMeeting } from "./api/meeting";
+import { analyzeWithAgent, getTranscriptionJob, startTranscriptionJob, summarizeMeeting } from "./api/meeting";
 import AuthPanel from "./components/AuthPanel.vue";
 import PageHero from "./components/PageHero.vue";
 
@@ -26,6 +26,7 @@ const activeTranscriptionJobId = ref("");
 const workLoading = reactive({
   transcribe: false,
   summary: false,
+  agent: false,
 });
 const session = reactive({
   token: localStorage.getItem("auth_token") || "",
@@ -47,6 +48,7 @@ const workspace = reactive({
   audioUrl: "",
   transcript: null,
   summary: null,
+  agentReport: null,
   isDragging: false,
   transcriptionStatus: "idle",
   completedChunks: 0,
@@ -82,6 +84,7 @@ const heroMetrics = [
 
 const isAuthenticated = computed(() => Boolean(session.token && session.user));
 const canGenerateSummary = computed(() => Boolean(workspace.transcript?.text) && !workLoading.transcribe);
+const canRunAgent = computed(() => Boolean(workspace.transcript?.text) && !workLoading.transcribe && !workLoading.agent);
 const canPreviewAudio = computed(() => Boolean(workspace.audioUrl));
 
 function notify(message, type = "success", title = "通知") {
@@ -120,6 +123,7 @@ function resetWorkspace() {
   workspace.audioUrl = "";
   workspace.transcript = null;
   workspace.summary = null;
+  workspace.agentReport = null;
   workspace.isDragging = false;
   workspace.transcriptionStatus = "idle";
   workspace.completedChunks = 0;
@@ -332,6 +336,25 @@ async function handleSummary() {
   }
 }
 
+async function handleAgentAnalyze() {
+  if (!workspace.transcript?.text) {
+    notify("请先完成音频转写", "warning", "无法运行 Agent 分析");
+    return;
+  }
+
+  workLoading.agent = true;
+  workspace.agentReport = null;
+  notify("Agent 正在多步分析会议内容，请稍候…", "info", "Agent 分析中");
+  try {
+    workspace.agentReport = await analyzeWithAgent(workspace.transcript.text);
+    notify("Agent 深度分析完成", "success", "分析完成");
+  } catch (error) {
+    notify(resolveError(error, "Agent 分析失败，请检查 API 配置"), "error", "Agent 失败");
+  } finally {
+    workLoading.agent = false;
+  }
+}
+
 onMounted(async () => {
   if (!session.token) {
     return;
@@ -436,6 +459,14 @@ onBeforeUnmount(() => {
           >
             2. 生成纪要
           </el-button>
+          <el-button
+            type="warning"
+            :disabled="!canRunAgent"
+            :loading="workLoading.agent"
+            @click="handleAgentAnalyze"
+          >
+            3. Agent 深度分析
+          </el-button>
           <el-button plain @click="resetWorkspace">重置</el-button>
         </div>
 
@@ -500,6 +531,80 @@ onBeforeUnmount(() => {
           </div>
         </template>
       </article>
+
+      <article class="card agent-card" v-if="workspace.agentReport || workLoading.agent">
+        <div class="card-header">
+          <div>
+            <p class="card-label">Agent Report</p>
+            <h2>深度会议分析报告</h2>
+          </div>
+          <span class="pill agent">Agent</span>
+        </div>
+
+        <div v-if="workLoading.agent" class="processing-banner" aria-live="polite">
+          <el-icon class="processing-icon is-loading"><Loading /></el-icon>
+          <div class="processing-copy">
+            <h3>Agent 正在多步分析</h3>
+            <p>Agent 依次调用摘要、决策、行动项、关键词工具，完成后汇总报告。</p>
+          </div>
+        </div>
+
+        <template v-else-if="workspace.agentReport">
+          <div class="summary-section">
+            <h3>会议摘要</h3>
+            <p>{{ workspace.agentReport.summary }}</p>
+          </div>
+
+          <div class="summary-section" v-if="workspace.agentReport.key_decisions?.length">
+            <h3>关键决策</h3>
+            <ul class="todo-list">
+              <li v-for="decision in workspace.agentReport.key_decisions" :key="decision">
+                {{ decision }}
+              </li>
+            </ul>
+          </div>
+
+          <div class="summary-section" v-if="workspace.agentReport.action_items?.length">
+            <h3>行动项</h3>
+            <div class="action-item-list">
+              <div
+                v-for="item in workspace.agentReport.action_items"
+                :key="item.task"
+                class="action-item"
+              >
+                <span class="action-task">{{ item.task }}</span>
+                <div class="action-meta">
+                  <el-tag v-if="item.owner" size="small" type="info" effect="plain">
+                    👤 {{ item.owner }}
+                  </el-tag>
+                  <el-tag v-if="item.deadline" size="small" type="danger" effect="plain">
+                    📅 {{ item.deadline }}
+                  </el-tag>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="summary-section" v-if="workspace.agentReport.keywords?.length">
+            <h3>关键词</h3>
+            <div class="tag-list">
+              <el-tag
+                v-for="keyword in workspace.agentReport.keywords"
+                :key="keyword"
+                type="warning"
+                effect="light"
+              >
+                {{ keyword }}
+              </el-tag>
+            </div>
+          </div>
+
+          <div class="summary-section" v-if="workspace.agentReport.overall_assessment">
+            <h3>整体评估</h3>
+            <p class="assessment-text">{{ workspace.agentReport.overall_assessment }}</p>
+          </div>
+        </template>
+      </article>
     </section>
   </main>
 </template>
@@ -549,6 +654,10 @@ onBeforeUnmount(() => {
 
 .workspace-grid {
   grid-template-columns: minmax(0, 1.16fr) minmax(320px, 0.84fr);
+}
+
+.agent-card {
+  grid-column: 1 / -1;
 }
 
 .card,
@@ -646,6 +755,11 @@ h3 {
 .pill.success {
   background: rgba(240, 253, 250, 0.78);
   color: #0f766e;
+}
+
+.pill.agent {
+  background: rgba(255, 251, 235, 0.88);
+  color: #b45309;
 }
 
 .todo-list {
@@ -840,6 +954,49 @@ h3 {
     transition: none !important;
     scroll-behavior: auto !important;
   }
+}
+
+.assessment-text {
+  margin: 10px 0 0;
+  line-height: 1.8;
+  color: rgba(15, 23, 42, 0.72);
+  padding: 14px 18px;
+  border-radius: 18px;
+  background: rgba(255, 251, 235, 0.72);
+  border: 1px solid rgba(180, 83, 9, 0.08);
+}
+
+.action-item-list {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.action-item {
+  padding: 14px 18px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.68);
+  border: 1px solid rgba(15, 23, 42, 0.05);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.action-task {
+  flex: 1;
+  min-width: 180px;
+  color: #0f172a;
+  font-weight: 600;
+  line-height: 1.6;
+}
+
+.action-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 @media (max-width: 980px) {

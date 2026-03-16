@@ -44,3 +44,12 @@ export async function summarizeMeeting(text) {
   });
   return data;
 }
+
+export async function analyzeWithAgent(text) {
+  const { data } = await apiClient.post(
+    "/agent/analyze",
+    { transcribed_text: text },
+    { timeout: 300000 },
+  );
+  return data;
+}

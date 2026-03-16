@@ -39,3 +39,28 @@ class MeetingSummaryResponse(BaseModel):
     summary: str
     keywords: list[str]
     todos: list[str]
+
+
+# --- Agent schemas ---
+
+
+class ActionItem(BaseModel):
+    """A single action item extracted by the agent, with optional owner and deadline."""
+
+    task: str
+    owner: str = ""
+    deadline: str = ""
+
+
+class AgentAnalyzeRequest(BaseModel):
+    transcribed_text: str
+
+
+class AgentMeetingReport(BaseModel):
+    """Enriched meeting report produced by the tool-calling agent."""
+
+    summary: str
+    key_decisions: list[str] = Field(default_factory=list)
+    action_items: list[ActionItem] = Field(default_factory=list)
+    keywords: list[str] = Field(default_factory=list)
+    overall_assessment: str = ""
