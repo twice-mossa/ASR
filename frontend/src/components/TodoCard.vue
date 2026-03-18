@@ -16,7 +16,7 @@ const emit = defineEmits(["ask"]);
         <p class="label">Action Items</p>
         <h4>待办事项</h4>
       </div>
-      <button class="inline-action" @click="emit('ask')">围绕待办继续问</button>
+      <button class="inline-action" @click="emit('ask')">问答即将接入</button>
     </div>
     <ul class="todo-list">
       <li v-for="todo in todos" :key="todo">{{ todo }}</li>

@@ -8,8 +8,10 @@ from typing import Any
 
 import httpx
 
+from app.schemas.auth import UserProfile
 from app.core.config import settings
 from app.schemas.meeting import MeetingSummaryResponse
+from app.services.meeting_service import get_meeting_transcript_text, save_meeting_summary, update_meeting_status
 
 logger = logging.getLogger(__name__)
 
@@ -145,3 +147,11 @@ async def build_summary(text: str) -> MeetingSummaryResponse:
     except Exception as e:
         logger.exception(f"MiniMax API call failed: {e}")
         return _fallback_summarize(text)
+
+
+async def build_summary_for_meeting(meeting_id: int, current_user: UserProfile) -> MeetingSummaryResponse:
+    text = get_meeting_transcript_text(meeting_id, current_user)
+    summary = await build_summary(text)
+    save_meeting_summary(meeting_id, summary)
+    update_meeting_status(meeting_id, status_value="summarized", error_message="")
+    return summary

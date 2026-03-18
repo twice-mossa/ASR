@@ -1,16 +1,19 @@
 import { computed, nextTick, reactive, ref } from "vue";
 
-import { getTranscriptionJob, startTranscriptionJob, summarizeMeeting } from "../api/meeting";
+import { getMeetingDetail, getTranscriptionJob, startMeetingTranscriptionJob, summarizeMeeting } from "../api/meeting";
 import { buildNotesMarkdown, slugifyFilename } from "../utils/workspace";
 
 export function useMeetingWorkflow({
   workspace,
+  session,
   isAuthenticated,
   withAuth,
   notify,
   resolveError,
   pushMessage,
   upsertMessage,
+  applyMeetingDetail,
+  hydrateMeetings,
 }) {
   const activeTranscriptionJobId = ref("");
   const processingMessageId = ref("");
@@ -23,15 +26,17 @@ export function useMeetingWorkflow({
 
   let uploadRequestHandler = async () => {};
 
-  const canGenerateSummary = computed(() => Boolean(workspace.transcript?.text) && !workLoading.transcribe);
-  const canAskQuestions = computed(() => Boolean(workspace.transcript?.text) && !workLoading.transcribe);
+  const canGenerateSummary = computed(
+    () => Boolean(workspace.meetingId && workspace.transcript?.text) && !workLoading.transcribe,
+  );
+  const canAskQuestions = computed(() => Boolean(workspace.meetingId && workspace.transcript?.text) && !workLoading.transcribe);
   const canDownloadNotes = computed(() => Boolean(workspace.summary?.summary));
   const statusLabel = computed(() => {
     if (!isAuthenticated.value) {
       return "访客模式";
     }
 
-    if (workLoading.transcribe) {
+    if (workLoading.transcribe || workspace.transcriptionStatus === "transcribing") {
       return "正在转录";
     }
 
@@ -39,16 +44,20 @@ export function useMeetingWorkflow({
       return "正在整理纪要";
     }
 
-    if (workspace.summary) {
+    if (workspace.transcriptionStatus === "summarized") {
       return "分析完成";
     }
 
-    if (workspace.transcript) {
-      return "可继续提问";
+    if (workspace.transcriptionStatus === "transcribed") {
+      return "可生成摘要";
     }
 
-    if (workspace.file) {
-      return "已上传音频";
+    if (workspace.transcriptionStatus === "failed") {
+      return "处理失败";
+    }
+
+    if (workspace.meetingId) {
+      return "已保存会议";
     }
 
     return "等待上传";
@@ -58,28 +67,33 @@ export function useMeetingWorkflow({
       return "先浏览工作台，真正开始分析时我们会提示你登录。";
     }
 
-    if (!workspace.file) {
-      return "上传音频后，你可以继续追问会议内容。";
+    if (!workspace.meetingId) {
+      return "上传音频后，系统会先创建可持久化的会议记录。";
     }
 
-    if (workspace.summary) {
-      return "继续提问这段音频，例如：这次会议有哪些明确待办？";
+    if (!workspace.transcript?.text) {
+      return "先开始转录，随后即可围绕当前会议继续提问。";
     }
 
-    if (workspace.transcript) {
-      return "可以追问当前音频，例如：谁负责下周跟进？";
-    }
-
-    return "先开始转录，随后即可围绕音频继续对话。";
+    return "问答入口已预留，真实检索问答能力将在下一阶段接入。";
   });
   const headerDescription = computed(() => {
     if (!workspace.fileName) {
-      return "更紧凑的工作台会把历史会话留在左侧，把当前音频和对话操作收在右侧主区。";
+      return "历史会议保留在左侧，当前工作区展示真实持久化的音频、转录和纪要结果。";
     }
 
-    return `${workspace.fileName} · ${workspace.durationLabel} · ${
-      workspace.summary ? "摘要已生成，可导出会议纪要" : workspace.transcript ? "转录已完成，可生成摘要" : "等待开始处理"
-    }`;
+    const stateText =
+      workspace.transcriptionStatus === "summarized"
+        ? "摘要已生成，可导出会议纪要"
+        : workspace.transcriptionStatus === "transcribed"
+          ? "转录已完成，可生成摘要"
+          : workspace.transcriptionStatus === "transcribing"
+            ? "正在处理中，刷新页面后仍可继续查看"
+            : workspace.transcriptionStatus === "failed"
+              ? "本次处理失败，可重新发起转录"
+              : "会议记录已创建，等待开始转录";
+
+    return `${workspace.fileName} · ${workspace.durationLabel} · ${stateText}`;
   });
 
   function setUploadRequestHandler(handler) {
@@ -93,6 +107,16 @@ export function useMeetingWorkflow({
     composerText.value = "";
     workLoading.transcribe = false;
     workLoading.summary = false;
+  }
+
+  async function refreshCurrentMeeting() {
+    if (!session.token || !workspace.meetingId) {
+      return;
+    }
+
+    const detail = await getMeetingDetail(session.token, workspace.meetingId);
+    applyMeetingDetail(detail, workspace.file);
+    await hydrateMeetings(session.token, detail.id);
   }
 
   async function handlePendingAction(action) {
@@ -122,7 +146,7 @@ export function useMeetingWorkflow({
   }
 
   function applyTranscriptionStatus(status) {
-    workspace.transcriptionStatus = status.status || "processing";
+    workspace.transcriptionStatus = status.status || "transcribing";
     workspace.completedChunks = status.completed_chunks || 0;
     workspace.totalChunks = status.total_chunks || 1;
     workspace.language = status.language || workspace.language || "zh";
@@ -132,6 +156,7 @@ export function useMeetingWorkflow({
       text: status.text || "",
       segments: status.segments || [],
     };
+    workspace.error = status.error || "";
   }
 
   async function pollTranscriptionJob(jobId) {
@@ -142,7 +167,7 @@ export function useMeetingWorkflow({
       if (processingMessageId.value) {
         const processingText =
           status.status === "completed"
-            ? "转录完成，结果已经整理到下方。"
+            ? "转录完成，结果已经保存到当前会议。"
             : status.total_chunks > 1
               ? `正在按分段处理音频，已完成 ${status.completed_chunks || 0} / ${status.total_chunks || 1} 段。`
               : "正在处理音频内容，长音频可能需要几分钟。";
@@ -156,10 +181,12 @@ export function useMeetingWorkflow({
       }
 
       if (status.status === "completed") {
+        workspace.transcriptionStatus = "transcribed";
         return;
       }
 
       if (status.status === "failed") {
+        workspace.transcriptionStatus = "failed";
         throw new Error(status.error || "转写失败");
       }
 
@@ -172,36 +199,32 @@ export function useMeetingWorkflow({
       return;
     }
 
-    if (!workspace.file) {
+    if (!workspace.meetingId) {
       notify("请先上传音频文件", "warning", "缺少音频");
       return;
     }
 
     workLoading.transcribe = true;
-    workspace.transcript = {
-      filename: workspace.fileName,
-      language: workspace.language,
-      text: "",
-      segments: [],
-    };
     workspace.summary = null;
     workspace.summaryGeneratedAt = "";
-    workspace.transcriptionStatus = "queued";
+    workspace.transcriptionStatus = "transcribing";
     workspace.completedChunks = 0;
     workspace.totalChunks = 1;
+    workspace.error = "";
     processingMessageId.value = pushMessage(
       "system",
       "system_status",
-      "已接收音频，开始转录。结果会按处理进度持续刷新。",
+      "已接收转录请求，结果会在当前会议记录里持续刷新并保存。",
       {
         progress: { completed: 0, total: 1 },
       },
     );
 
     try {
-      const job = await startTranscriptionJob(workspace.file);
+      const job = await startMeetingTranscriptionJob(session.token, workspace.meetingId);
       activeTranscriptionJobId.value = job.job_id;
       await pollTranscriptionJob(job.job_id);
+      await refreshCurrentMeeting();
       pushMessage("assistant", "assistant_answer", "转录已完成。你现在可以查看全文、浏览时间分段，或者直接生成会议摘要。");
       pushMessage("assistant", "transcript_result", "", {
         transcript: workspace.transcript,
@@ -218,6 +241,7 @@ export function useMeetingWorkflow({
     } finally {
       workLoading.transcribe = false;
       processingMessageId.value = "";
+      await hydrateMeetings(session.token, workspace.meetingId);
     }
   }
 
@@ -226,7 +250,7 @@ export function useMeetingWorkflow({
       return;
     }
 
-    if (!workspace.transcript?.text) {
+    if (!workspace.meetingId || !workspace.transcript?.text) {
       notify("请先完成音频转录", "warning", "无法生成摘要");
       return;
     }
@@ -235,11 +259,15 @@ export function useMeetingWorkflow({
     summaryMessageId.value = pushMessage("system", "system_status", "正在整理摘要、关键词和待办事项。");
 
     try {
-      workspace.summary = await summarizeMeeting(workspace.transcript.text);
+      workspace.summary = await summarizeMeeting({
+        token: session.token,
+        meetingId: workspace.meetingId,
+      });
       workspace.summaryGeneratedAt = new Date().toISOString();
+      workspace.transcriptionStatus = "summarized";
       if (summaryMessageId.value) {
         upsertMessage(summaryMessageId.value, {
-          text: "结构化分析已完成，你可以继续围绕结果追问，或直接导出会议纪要。",
+          text: "结构化分析已完成，并已保存到当前会议记录。",
         });
       }
       pushMessage("assistant", "summary_result", "", {
@@ -252,13 +280,14 @@ export function useMeetingWorkflow({
         todos: workspace.summary.todos || [],
       });
       pushMessage("assistant", "reasoning", "", {
-        reasoningTitle: "查看思考过程",
+        reasoningTitle: "查看整理思路",
         reasoningItems: [
-          "识别音频中的高置信主题与反复出现的议题。",
-          "优先提炼决策、风险、截止时间与责任归属。",
-          "将零散表述整理成摘要、关键词和待办三个层次。",
+          "先识别音频中的主题、决策和风险点。",
+          "再提炼高频关键词和可执行事项。",
+          "最后按摘要、关键词、待办三个层次组织输出。",
         ],
       });
+      await hydrateMeetings(session.token, workspace.meetingId);
       notify("会议纪要生成完成", "success", "生成完成");
     } catch (error) {
       if (summaryMessageId.value) {
@@ -317,26 +346,20 @@ export function useMeetingWorkflow({
     pushMessage("user", "user_prompt", text);
     composerText.value = "";
 
-    if (!workspace.file) {
-      pushMessage("assistant", "assistant_answer", "可以先上传一段会议音频。我会在同一条对话里继续整理转录、摘要和后续追问。");
+    if (!workspace.meetingId) {
+      pushMessage("assistant", "assistant_answer", "可以先上传一段会议音频。系统会先把音频保存成持久化会议记录，再继续整理转录和纪要。");
       return;
     }
 
     if (!workspace.transcript?.text) {
-      pushMessage("assistant", "assistant_answer", "当前音频还没有可用转录。先开始转录，随后我就能围绕这段内容继续回答。");
+      pushMessage("assistant", "assistant_answer", "当前会议还没有可用转录。先开始转录，随后我就能围绕这段内容继续回答。");
       return;
     }
 
     pushMessage(
       "assistant",
       "assistant_answer",
-      "问答界面已经就绪。当前环境还没有接入真正的 RAG 检索接口，因此这里先保留对话壳子与思考过程位置。接入后，我会基于当前音频内容直接回答你的问题，并给出引用片段。",
-      {
-        sources: [
-          "后续可在这里展示引用到的音频片段或转录段落。",
-          "也可以关联对应时间戳，支持跳回原始音频。",
-        ],
-      },
+      "真实问答能力将在下一阶段接入。当前这一轮已经先把会议记录、转录结果和摘要结果持久化，后续会基于这些数据再接检索问答与引用定位。",
     );
   }
 
@@ -362,13 +385,13 @@ export function useMeetingWorkflow({
     }
 
     if (action === "prompt-todos") {
-      composerText.value = "这次会议里有哪些明确的待办事项和负责人？";
+      composerText.value = "等真实问答接入后，我想先追问待办事项和负责人。";
       submitPrompt();
       return;
     }
 
     if (action === "prompt-risk") {
-      composerText.value = "请总结这段音频里的关键风险和下一步建议。";
+      composerText.value = "等真实问答接入后，我想先追问关键风险和下一步建议。";
       submitPrompt();
     }
   }

@@ -21,7 +21,7 @@ const emit = defineEmits(["ask", "download"]);
         <h4>会议摘要</h4>
       </div>
       <div class="card-actions">
-        <button class="inline-action inline-action--ghost" @click="emit('ask')">继续追问</button>
+        <button class="inline-action inline-action--ghost" @click="emit('ask')">问答即将接入</button>
         <button class="inline-action" :disabled="!canDownloadNotes" @click="emit('download')">下载会议纪要</button>
       </div>
     </div>

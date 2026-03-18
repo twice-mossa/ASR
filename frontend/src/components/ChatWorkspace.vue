@@ -52,8 +52,8 @@ const welcomeCards = [
   },
   {
     key: "prompt-todos",
-    title: "继续追问音频",
-    description: "后续可基于 RAG 对当前音频做多轮问答和引用定位。",
+    title: "问答即将接入",
+    description: "这一轮先完成会议记录持久化，下一轮再接真实检索问答。",
   },
 ];
 </script>
@@ -126,7 +126,7 @@ const welcomeCards = [
             >
               生成摘要
             </button>
-            <button class="follow-up-button follow-up-button--ghost" @click="emit('action', 'prompt-todos')">继续追问</button>
+            <button class="follow-up-button follow-up-button--ghost" @click="emit('action', 'prompt-todos')">问答即将接入</button>
           </div>
         </div>
       </article>

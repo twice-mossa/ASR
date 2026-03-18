@@ -20,6 +20,7 @@ from app.schemas.meeting import (
     TranscriptResponse,
     TranscriptSegment,
 )
+from app.services.meeting_service import get_meeting_audio_payload, save_transcript_result, update_meeting_status
 
 _whisper_model = None
 _load_lock = asyncio.Lock()
@@ -175,6 +176,7 @@ async def start_transcription_job(file: UploadFile) -> TranscriptJobCreateRespon
         TranscriptJobStatusResponse(
             job_id=job_id,
             status="queued",
+            meeting_id=None,
             filename=filename,
             language="zh",
             text="",
@@ -193,7 +195,43 @@ async def start_transcription_job(file: UploadFile) -> TranscriptJobCreateRespon
     return TranscriptJobCreateResponse(job_id=job_id, status="queued")
 
 
-async def _run_transcription_job(job_id: str, filename: str, raw: bytes, content_type: str) -> None:
+async def start_transcription_job_for_meeting(meeting_id: int, current_user) -> TranscriptJobCreateResponse:
+    meeting, raw, content_type = get_meeting_audio_payload(meeting_id, current_user)
+    job_id = uuid.uuid4().hex
+
+    _store_job(
+        TranscriptJobStatusResponse(
+            job_id=job_id,
+            status="queued",
+            meeting_id=meeting_id,
+            filename=meeting.filename,
+            language=meeting.language or "zh",
+            text=meeting.transcript_text or "",
+            segments=[],
+            total_chunks=1,
+            completed_chunks=0,
+            error=None,
+        )
+    )
+    update_meeting_status(meeting_id, status_value="transcribing", error_message="")
+
+    threading.Thread(
+        target=lambda: asyncio.run(
+            _run_transcription_job(job_id, meeting.filename, raw, content_type, meeting_id=meeting_id)
+        ),
+        name=f"transcription-job-{job_id[:8]}",
+        daemon=True,
+    ).start()
+    return TranscriptJobCreateResponse(job_id=job_id, status="queued", meeting_id=meeting_id)
+
+
+async def _run_transcription_job(
+    job_id: str,
+    filename: str,
+    raw: bytes,
+    content_type: str,
+    meeting_id: int | None = None,
+) -> None:
     _update_job(job_id, status="processing")
     try:
         result = await _transcribe_from_bytes(
@@ -206,6 +244,7 @@ async def _run_transcription_job(job_id: str, filename: str, raw: bytes, content
         _update_job(
             job_id,
             status="completed",
+            meeting_id=meeting_id,
             filename=result.filename,
             language=result.language,
             text=result.text,
@@ -214,11 +253,17 @@ async def _run_transcription_job(job_id: str, filename: str, raw: bytes, content
             total_chunks=max(1, current_job.total_chunks),
             error=None,
         )
+        if meeting_id is not None:
+            save_transcript_result(meeting_id, result)
     except HTTPException as exc:
         _update_job(job_id, status="failed", error=str(exc.detail))
+        if meeting_id is not None:
+            update_meeting_status(meeting_id, status_value="failed", error_message=str(exc.detail))
     except Exception as exc:
         logger.exception("Unexpected transcription job failure: %s", exc)
         _update_job(job_id, status="failed", error=str(exc))
+        if meeting_id is not None:
+            update_meeting_status(meeting_id, status_value="failed", error_message=str(exc))
 
 
 async def _transcribe_from_bytes(

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
@@ -18,6 +20,7 @@ Base = declarative_base()
 
 
 def init_database() -> None:
-    from app.models import User
+    from app.models import Meeting, MeetingSummary, TranscriptSegment, User
 
+    Path(settings.upload_dir).mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(bind=engine)

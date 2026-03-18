@@ -52,28 +52,34 @@ const {
   withAuth,
 } = auth;
 
-const conversationWorkspace = useConversationWorkspace();
+const conversationWorkspace = useConversationWorkspace({
+  notify,
+  resolveError,
+});
 
 const {
   currentConversationId,
   messages,
   sidebarConversations,
   workspace,
-  createNewConversation,
+  applyMeetingDetail,
+  hydrateMeetings,
   resetWorkspaceState,
   revokeAudioUrl,
-  saveCurrentConversation,
   selectConversation: restoreConversation,
 } = conversationWorkspace;
 
 const meetingWorkflow = useMeetingWorkflow({
   workspace,
+  session,
   isAuthenticated,
   withAuth,
   notify,
   resolveError,
   pushMessage: conversationWorkspace.pushMessage,
   upsertMessage: conversationWorkspace.upsertMessage,
+  applyMeetingDetail,
+  hydrateMeetings,
 });
 
 const {
@@ -99,10 +105,16 @@ const audioFileContext = useAudioFileContext({
   workspace,
   withAuth,
   notify,
-  resetMessages: conversationWorkspace.resetMessages,
-  pushMessage: conversationWorkspace.pushMessage,
   revokeAudioUrl,
   onBeforeApplyFile: resetTransientState,
+  tokenRef: {
+    get value() {
+      return session.token;
+    },
+  },
+  resolveError,
+  applyMeetingDetail,
+  hydrateMeetings,
 });
 
 const { fileInputRef, handleFileSelect, handleUploadRequest } = audioFileContext;
@@ -111,47 +123,45 @@ setPendingActionHandler(handlePendingAction);
 setUploadRequestHandler(handleUploadRequest);
 
 function startNewAnalysis() {
-  saveCurrentConversation();
   resetTransientState();
-  createNewConversation();
   resetWorkspaceState();
   sidebarOpen.value = false;
 }
 
-function selectConversation(conversationId) {
+async function selectConversation(conversationId) {
   if (conversationId === currentConversationId.value) {
     sidebarOpen.value = false;
     return;
   }
 
-  saveCurrentConversation();
   resetTransientState();
-  if (restoreConversation(conversationId)) {
+  if (await restoreConversation(conversationId, session.token)) {
     sidebarOpen.value = false;
   }
 }
 
 onMounted(async () => {
   await hydrateSession();
+  if (session.token) {
+    await hydrateMeetings(session.token);
+  }
 });
 
 watch(
-  () => [
-    messages.value,
-    workspace.fileName,
-    workspace.durationLabel,
-    workspace.language,
-    workspace.transcript,
-    workspace.summary,
-    workspace.transcriptionStatus,
-    workspace.completedChunks,
-    workspace.totalChunks,
-    workspace.summaryGeneratedAt,
-  ],
-  () => {
-    saveCurrentConversation();
+  () => session.token,
+  async (token, previousToken) => {
+    if (token === previousToken) {
+      return;
+    }
+
+    if (!token) {
+      resetTransientState();
+      resetWorkspaceState();
+      return;
+    }
+
+    await hydrateMeetings(token);
   },
-  { deep: true },
 );
 
 onBeforeUnmount(() => {
