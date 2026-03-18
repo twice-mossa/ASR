@@ -73,23 +73,23 @@ const emit = defineEmits(["select-conversation", "new-analysis", "request-login"
   height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 16px 14px 14px;
+  gap: 10px;
+  padding: 14px 12px 12px;
   overflow-y: auto;
 }
 
 .brand-block {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 9px;
 }
 
 .brand-mark {
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   display: grid;
   place-items: center;
-  border-radius: 12px;
+  border-radius: 11px;
   background: linear-gradient(145deg, #1f4fd1, #11337d);
   color: #f8fbff;
   font-size: 0.82rem;
@@ -100,23 +100,23 @@ const emit = defineEmits(["select-conversation", "new-analysis", "request-login"
 .brand-eyebrow {
   margin: 0 0 4px;
   color: var(--text-soft);
-  font-size: 0.66rem;
+  font-size: 0.62rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 
 h1 {
   margin: 0;
-  font-size: 1rem;
+  font-size: 0.98rem;
   color: var(--text-strong);
   letter-spacing: -0.02em;
 }
 
 .new-analysis,
 .account-action {
-  min-height: 38px;
+  min-height: 36px;
   border: 0;
-  border-radius: 12px;
+  border-radius: 11px;
   background: var(--accent);
   color: white;
   font-size: 0.88rem;
@@ -131,45 +131,39 @@ h1 {
   background: var(--accent-strong);
 }
 
-.history-block,
-.account-block {
-  padding: 12px;
-  border: 1px solid var(--line-soft);
-  border-radius: 16px;
-  background: var(--surface-soft);
-}
-
 .history-block {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  padding: 10px 0 0;
 }
 
 .block-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
+  padding: 0 4px;
   color: var(--text-soft);
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
 .history-list {
   display: grid;
-  gap: 8px;
+  gap: 4px;
   overflow-y: auto;
 }
 
 .history-item {
   display: grid;
-  gap: 5px;
-  padding: 11px 12px;
+  gap: 4px;
+  padding: 10px 11px;
   border: 1px solid transparent;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.55);
+  border-radius: 12px;
+  background: transparent;
   color: var(--text-main);
   cursor: pointer;
   text-align: left;
@@ -178,55 +172,63 @@ h1 {
 
 .history-item strong {
   color: var(--text-strong);
-  font-size: 0.88rem;
-  line-height: 1.5;
+  font-size: 0.82rem;
+  line-height: 1.45;
 }
 
 .history-item span,
 .history-item small,
 .account-copy span {
   color: var(--text-soft);
-  line-height: 1.6;
-  font-size: 0.78rem;
+  line-height: 1.52;
+  font-size: 0.74rem;
 }
 
 .history-item small {
-  font-size: 0.7rem;
+  font-size: 0.66rem;
 }
 
 .history-item:hover,
 .history-item--active {
-  background: var(--surface-raised);
-  border-color: var(--line-soft);
-  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.78);
+  border-color: rgba(148, 163, 184, 0.14);
+}
+
+.history-item span {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .account-block {
   margin-top: auto;
   display: grid;
   gap: 10px;
+  padding: 12px;
+  border-top: 1px solid var(--line-soft);
 }
 
 .account-copy {
   display: grid;
-  gap: 6px;
+  gap: 5px;
 }
 
 .account-label {
   margin: 0;
   color: var(--text-soft);
-  font-size: 0.7rem;
+  font-size: 0.64rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
 .account-copy strong {
   color: var(--text-strong);
-  font-size: 0.9rem;
+  font-size: 0.86rem;
 }
 
 .account-action--ghost {
-  background: var(--surface-base);
+  background: rgba(255, 255, 255, 0.9);
   color: var(--text-main);
   border: 1px solid var(--line-soft);
 }

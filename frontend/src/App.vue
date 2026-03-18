@@ -261,7 +261,7 @@ onBeforeUnmount(() => {
 .app-shell {
   height: 100vh;
   display: grid;
-  grid-template-columns: 272px minmax(0, 1fr);
+  grid-template-columns: 236px minmax(0, 1fr);
   background: var(--app-bg);
   overflow: hidden;
 }
@@ -286,7 +286,7 @@ onBeforeUnmount(() => {
 
 .workspace-body {
   min-height: 0;
-  padding: 0 22px;
+  padding: 0 18px;
   overflow: hidden;
 }
 

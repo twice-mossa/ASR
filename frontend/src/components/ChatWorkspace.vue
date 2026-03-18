@@ -144,16 +144,18 @@ const welcomeCards = [
 <style scoped>
 .chat-workspace {
   height: 100%;
-  padding: 18px 0 12px;
+  padding: 16px 0 10px;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
 
 .welcome-panel {
+  max-width: 920px;
+  margin: 0 auto;
   min-height: 100%;
   display: grid;
   align-content: center;
-  gap: 20px;
+  gap: 18px;
 }
 
 .welcome-copy {
@@ -163,7 +165,7 @@ const welcomeCards = [
 .welcome-label {
   margin: 0 0 8px;
   color: var(--text-soft);
-  font-size: 0.7rem;
+  font-size: 0.64rem;
   letter-spacing: 0.16em;
   text-transform: uppercase;
 }
@@ -179,9 +181,9 @@ h3 {
 
 .welcome-copy p:last-child {
   max-width: 64ch;
-  margin: 10px 0 0;
+  margin: 8px 0 0;
   color: var(--text-soft);
-  line-height: 1.7;
+  line-height: 1.65;
 }
 
 .welcome-grid {
@@ -191,9 +193,9 @@ h3 {
 }
 
 .welcome-card {
-  padding: 14px 15px 16px;
+  padding: 12px 14px 14px;
   border: 1px solid var(--line-soft);
-  border-radius: 16px;
+  border-radius: 14px;
   background: var(--surface-base);
   text-align: left;
   cursor: pointer;
@@ -209,37 +211,39 @@ h3 {
 .welcome-card strong {
   display: block;
   color: var(--text-strong);
-  font-size: 0.94rem;
+  font-size: 0.9rem;
 }
 
 .welcome-card span {
   display: block;
-  margin-top: 8px;
+  margin-top: 7px;
   color: var(--text-soft);
-  line-height: 1.7;
+  line-height: 1.6;
 }
 
 .message-list {
+  max-width: 920px;
+  margin: 0 auto;
   display: grid;
-  gap: 16px;
+  gap: 14px;
   padding-bottom: 8px;
 }
 
 .message-item {
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 10px;
 }
 
 .message-avatar {
-  width: 38px;
-  height: 38px;
+  width: 32px;
+  height: 32px;
   display: grid;
   place-items: center;
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--surface-raised);
   color: var(--text-main);
-  font-size: 0.74rem;
+  font-size: 0.68rem;
   font-weight: 700;
 }
 
@@ -260,18 +264,18 @@ h3 {
 
 .message-body {
   min-width: 0;
-  padding-top: 2px;
+  padding-top: 1px;
 }
 
 .message-text {
   margin: 0;
   color: var(--text-main);
-  line-height: 1.76;
+  line-height: 1.72;
 }
 
 .message-item--user .message-body {
-  padding: 13px 15px;
-  border-radius: 18px;
+  padding: 11px 13px;
+  border-radius: 16px;
   background: #111827;
 }
 
@@ -281,10 +285,10 @@ h3 {
 
 .message-item--system .message-body,
 .message-item--error .message-body {
-  padding: 13px 15px;
+  padding: 11px 13px;
   border: 1px solid var(--line-soft);
-  border-radius: 16px;
-  background: var(--surface-soft);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.7);
 }
 
 .message-item--error .message-body {
@@ -296,9 +300,9 @@ h3 {
 .follow-up-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
-  margin-top: 12px;
+  margin-top: 10px;
 }
 
 .progress-meta span {
@@ -311,10 +315,10 @@ h3 {
 }
 
 .follow-up-button {
-  min-height: 40px;
-  padding: 0 14px;
+  min-height: 34px;
+  padding: 0 12px;
   border: 0;
-  border-radius: 12px;
+  border-radius: 11px;
   background: var(--accent);
   color: white;
   font-weight: 700;
@@ -323,7 +327,7 @@ h3 {
 
 .follow-up-button--ghost {
   border: 1px solid var(--line-soft);
-  background: white;
+  background: rgba(255, 255, 255, 0.82);
   color: var(--text-main);
 }
 
