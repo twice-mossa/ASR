@@ -14,7 +14,28 @@ class TranscriptResponse(BaseModel):
     segments: list[TranscriptSegment]
 
 
+class TranscriptJobCreateResponse(BaseModel):
+    job_id: str
+    status: str
+
+
+class TranscriptJobStatusResponse(BaseModel):
+    job_id: str
+    status: str
+    filename: str = ""
+    language: str = "zh"
+    text: str = ""
+    segments: list[TranscriptSegment] = Field(default_factory=list)
+    total_chunks: int = 1
+    completed_chunks: int = 0
+    error: str | None = None
+
+
+class SummaryRequest(BaseModel):
+    transcribed_text: str
+
+
 class MeetingSummaryResponse(BaseModel):
     summary: str
     keywords: list[str]
-    action_items: list[str]
+    todos: list[str]
