@@ -31,10 +31,10 @@ const emit = defineEmits(["ask", "download"]);
 
 <style scoped>
 .result-card {
-  margin-top: 14px;
-  padding: 18px;
+  margin-top: 12px;
+  padding: 16px;
   border: 1px solid var(--line-soft);
-  border-radius: 20px;
+  border-radius: 18px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(249, 251, 255, 1));
 }
 
@@ -56,7 +56,7 @@ const emit = defineEmits(["ask", "download"]);
 .label {
   margin: 0 0 6px;
   color: var(--text-soft);
-  font-size: 0.74rem;
+  font-size: 0.68rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
@@ -64,22 +64,23 @@ const emit = defineEmits(["ask", "download"]);
 h4 {
   margin: 0;
   color: var(--text-strong);
-  font-size: 1.06rem;
+  font-size: 0.98rem;
 }
 
 p {
   margin: 0;
   color: var(--text-main);
-  line-height: 1.82;
+  line-height: 1.72;
 }
 
 .inline-action {
-  min-height: 34px;
-  padding: 0 12px;
+  min-height: 32px;
+  padding: 0 11px;
   border: 0;
   border-radius: 999px;
   background: var(--accent);
   color: white;
+  font-size: 0.8rem;
   font-weight: 700;
   cursor: pointer;
 }
