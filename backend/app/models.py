@@ -65,3 +65,15 @@ class MeetingSummary(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+
+class MeetingQARecord(Base):
+    __tablename__ = "meeting_qa_records"
+
+    id = Column(Integer, primary_key=True, index=True)
+    meeting_id = Column(Integer, ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False, index=True)
+    question = Column(Text, nullable=False, default="")
+    answer = Column(Text, nullable=False, default="")
+    citations_json = Column(Text, nullable=False, default="[]")
+    reasoning_summary = Column(Text, nullable=False, default="")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())

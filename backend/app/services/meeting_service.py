@@ -11,12 +11,14 @@ from sqlalchemy import delete, select
 
 from app.core.config import settings
 from app.core.database import SessionLocal
-from app.models import Meeting, MeetingSummary, TranscriptSegment
+from app.models import Meeting, MeetingQARecord, MeetingSummary, TranscriptSegment
 from app.schemas.auth import UserProfile
 from app.schemas.meeting import (
+    MeetingCitation,
     MeetingCreateRequest,
     MeetingDetailResponse,
     MeetingListItem,
+    MeetingQARecordResponse,
     MeetingSummaryResponse,
     TranscriptResponse,
     TranscriptSegment as TranscriptSegmentSchema,
@@ -71,11 +73,41 @@ def _build_summary(summary: MeetingSummary | None) -> MeetingSummaryResponse | N
     )
 
 
+def _build_qa_records(records: list[MeetingQARecord]) -> list[MeetingQARecordResponse]:
+    items: list[MeetingQARecordResponse] = []
+    for record in records:
+        try:
+            citations = json.loads(record.citations_json or "[]")
+        except json.JSONDecodeError:
+            citations = []
+
+        items.append(
+            MeetingQARecordResponse(
+                id=int(record.id),
+                question=record.question or "",
+                answer=record.answer or "",
+                citations=[
+                    MeetingCitation(
+                        text=str(item.get("text") or ""),
+                        start=float(item.get("start") or 0.0),
+                        end=float(item.get("end") or 0.0),
+                        segment_id=int(item["segment_id"]) if item.get("segment_id") is not None else None,
+                    )
+                    for item in citations
+                    if isinstance(item, dict)
+                ],
+                reasoning_summary=record.reasoning_summary or None,
+                created_at=_to_iso(record.created_at),
+            )
+        )
+    return items
+
+
 def _meeting_preview(meeting: Meeting, summary: MeetingSummary | None) -> str:
     if summary and summary.summary:
-        return summary.summary[:34]
+        return "已生成摘要，可继续追问会议细节。"
     if meeting.transcript_text:
-        return meeting.transcript_text[:34]
+        return "已完成转录，可继续追问会议内容。"
     if meeting.status == "failed" and meeting.error_message:
         return meeting.error_message[:34]
     return "已上传音频，等待转录。"
@@ -190,6 +222,11 @@ def get_meeting_detail(meeting_id: int, current_user: UserProfile) -> MeetingDet
         summary = db.execute(
             select(MeetingSummary).where(MeetingSummary.meeting_id == meeting.id)
         ).scalar_one_or_none()
+        qa_records = db.execute(
+            select(MeetingQARecord)
+            .where(MeetingQARecord.meeting_id == meeting.id)
+            .order_by(MeetingQARecord.created_at.asc(), MeetingQARecord.id.asc())
+        ).scalars().all()
 
         return MeetingDetailResponse(
             id=int(meeting.id),
@@ -204,6 +241,7 @@ def get_meeting_detail(meeting_id: int, current_user: UserProfile) -> MeetingDet
             error=meeting.error_message or None,
             transcript=_build_transcript(meeting, segments),
             summary=_build_summary(summary),
+            qa_records=_build_qa_records(qa_records),
         )
 
 

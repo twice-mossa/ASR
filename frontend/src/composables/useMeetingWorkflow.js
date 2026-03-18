@@ -1,6 +1,6 @@
 import { computed, nextTick, reactive, ref } from "vue";
 
-import { getMeetingDetail, getTranscriptionJob, startMeetingTranscriptionJob, summarizeMeeting } from "../api/meeting";
+import { askMeetingQuestion, getMeetingDetail, getTranscriptionJob, startMeetingTranscriptionJob, summarizeMeeting } from "../api/meeting";
 import { buildNotesMarkdown, slugifyFilename } from "../utils/workspace";
 
 export function useMeetingWorkflow({
@@ -22,6 +22,7 @@ export function useMeetingWorkflow({
   const workLoading = reactive({
     transcribe: false,
     summary: false,
+    ask: false,
   });
 
   let uploadRequestHandler = async () => {};
@@ -29,7 +30,9 @@ export function useMeetingWorkflow({
   const canGenerateSummary = computed(
     () => Boolean(workspace.meetingId && workspace.transcript?.text) && !workLoading.transcribe,
   );
-  const canAskQuestions = computed(() => Boolean(workspace.meetingId && workspace.transcript?.text) && !workLoading.transcribe);
+  const canAskQuestions = computed(
+    () => Boolean(workspace.meetingId && workspace.transcript?.text) && !workLoading.transcribe && !workLoading.ask,
+  );
   const canDownloadNotes = computed(() => Boolean(workspace.summary?.summary));
   const statusLabel = computed(() => {
     if (!isAuthenticated.value) {
@@ -42,6 +45,10 @@ export function useMeetingWorkflow({
 
     if (workLoading.summary) {
       return "正在整理纪要";
+    }
+
+    if (workLoading.ask) {
+      return "正在回答问题";
     }
 
     if (workspace.transcriptionStatus === "summarized") {
@@ -75,7 +82,7 @@ export function useMeetingWorkflow({
       return "先开始转录，随后即可围绕当前会议继续提问。";
     }
 
-    return "问答入口已预留，真实检索问答能力将在下一阶段接入。";
+    return "围绕当前会议继续提问，我会结合转写片段给出回答和引用依据。";
   });
   const headerDescription = computed(() => {
     if (!workspace.fileName) {
@@ -84,9 +91,9 @@ export function useMeetingWorkflow({
 
     const stateText =
       workspace.transcriptionStatus === "summarized"
-        ? "摘要已生成，可导出会议纪要"
+        ? "摘要已生成，可继续追问会议细节"
         : workspace.transcriptionStatus === "transcribed"
-          ? "转录已完成，可生成摘要"
+          ? "转录已完成，可继续追问或生成摘要"
           : workspace.transcriptionStatus === "transcribing"
             ? "正在处理中，刷新页面后仍可继续查看"
             : workspace.transcriptionStatus === "failed"
@@ -107,6 +114,7 @@ export function useMeetingWorkflow({
     composerText.value = "";
     workLoading.transcribe = false;
     workLoading.summary = false;
+    workLoading.ask = false;
   }
 
   async function refreshCurrentMeeting() {
@@ -142,6 +150,12 @@ export function useMeetingWorkflow({
 
     if (action.type === "ask") {
       await submitPrompt();
+      return;
+    }
+
+    if (action.type === "seek-audio") {
+      workspace.audioSeekTo = Number(action.seconds) || 0;
+      workspace.audioSeekNonce += 1;
     }
   }
 
@@ -280,7 +294,7 @@ export function useMeetingWorkflow({
         todos: workspace.summary.todos || [],
       });
       pushMessage("assistant", "reasoning", "", {
-        reasoningTitle: "查看整理思路",
+        reasoningTitle: "查看摘要依据",
         reasoningItems: [
           "先识别音频中的主题、决策和风险点。",
           "再提炼高频关键词和可执行事项。",
@@ -356,14 +370,38 @@ export function useMeetingWorkflow({
       return;
     }
 
-    pushMessage(
-      "assistant",
-      "assistant_answer",
-      "真实问答能力将在下一阶段接入。当前这一轮已经先把会议记录、转录结果和摘要结果持久化，后续会基于这些数据再接检索问答与引用定位。",
-    );
+    workLoading.ask = true;
+    const pendingId = pushMessage("system", "system_status", "正在结合当前会议转写内容整理回答。");
+
+    try {
+      const result = await askMeetingQuestion(session.token, workspace.meetingId, text);
+      upsertMessage(pendingId, {
+        text: "回答已生成，下面附上引用片段。",
+      });
+      pushMessage("assistant", "qa_answer", "", {
+        answer: result.answer,
+        citations: result.citations || [],
+        reasoningTitle: result.reasoning_summary ? "查看回答依据" : "",
+        reasoningItems: result.reasoning_summary ? [result.reasoning_summary] : [],
+      });
+      await hydrateMeetings(session.token, workspace.meetingId);
+    } catch (error) {
+      upsertMessage(pendingId, {
+        text: resolveError(error, "提问失败，请稍后重试。"),
+        tone: "error",
+      });
+      notify(resolveError(error, "提问失败，请稍后重试。"), "error", "问答失败");
+    } finally {
+      workLoading.ask = false;
+    }
   }
 
   function handleSuggestion(action) {
+    if (action && typeof action === "object") {
+      handlePendingAction(action);
+      return;
+    }
+
     if (action === "upload") {
       uploadRequestHandler();
       return;
@@ -385,13 +423,13 @@ export function useMeetingWorkflow({
     }
 
     if (action === "prompt-todos") {
-      composerText.value = "等真实问答接入后，我想先追问待办事项和负责人。";
+      composerText.value = "请根据这场会议内容，梳理待办事项的负责人和下一步动作。";
       submitPrompt();
       return;
     }
 
     if (action === "prompt-risk") {
-      composerText.value = "等真实问答接入后，我想先追问关键风险和下一步建议。";
+      composerText.value = "请结合会议内容，概括当前最关键的风险和建议的下一步。";
       submitPrompt();
     }
   }

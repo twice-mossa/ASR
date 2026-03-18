@@ -77,6 +77,8 @@ export function defaultWorkspaceState() {
     language: "zh",
     summaryGeneratedAt: "",
     error: "",
+    audioSeekTo: null,
+    audioSeekNonce: 0,
   };
 }
 
@@ -111,8 +113,26 @@ export function cloneMessages(list) {
     keywords: message.keywords ? [...message.keywords] : undefined,
     todos: message.todos ? [...message.todos] : undefined,
     reasoningItems: message.reasoningItems ? [...message.reasoningItems] : undefined,
+    citations: message.citations ? message.citations.map((citation) => ({ ...citation })) : undefined,
     sources: message.sources ? [...message.sources] : undefined,
   }));
+}
+
+export function formatTimestamp(seconds) {
+  if (!Number.isFinite(seconds)) {
+    return "--:--";
+  }
+
+  const totalSeconds = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const remainSeconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(remainSeconds).padStart(2, "0")}`;
+  }
+
+  return `${String(minutes).padStart(2, "0")}:${String(remainSeconds).padStart(2, "0")}`;
 }
 
 export function buildNotesMarkdown({ fileName, summary, keywords, todos, language, durationLabel, summaryGeneratedAt }) {

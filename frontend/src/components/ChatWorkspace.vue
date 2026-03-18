@@ -1,4 +1,5 @@
 <script setup>
+import AnswerCard from "./AnswerCard.vue";
 import KeywordCard from "./KeywordCard.vue";
 import ReasoningCard from "./ReasoningCard.vue";
 import SummaryCard from "./SummaryCard.vue";
@@ -52,8 +53,8 @@ const welcomeCards = [
   },
   {
     key: "prompt-todos",
-    title: "问答即将接入",
-    description: "这一轮先完成会议记录持久化，下一轮再接真实检索问答。",
+    title: "继续追问会议",
+    description: "围绕当前会议内容继续提问，并查看回答引用的原始片段。",
   },
 ];
 </script>
@@ -108,9 +109,15 @@ const welcomeCards = [
           />
           <KeywordCard v-if="message.kind === 'keyword_result'" :keywords="message.keywords" />
           <TodoCard v-if="message.kind === 'todo_result'" :todos="message.todos" @ask="emit('action', 'prompt-todos')" />
+          <AnswerCard
+            v-if="message.kind === 'qa_answer'"
+            :answer="message.answer"
+            :citations="message.citations || []"
+            @seek="emit('action', { type: 'seek-audio', seconds: $event })"
+          />
           <ReasoningCard
-            v-if="message.kind === 'reasoning'"
-            :title="message.reasoningTitle"
+            v-if="message.kind === 'reasoning' || (message.kind === 'qa_answer' && message.reasoningItems?.length)"
+            :title="message.reasoningTitle || '查看回答依据'"
             :items="message.reasoningItems"
           />
 
@@ -126,7 +133,7 @@ const welcomeCards = [
             >
               生成摘要
             </button>
-            <button class="follow-up-button follow-up-button--ghost" @click="emit('action', 'prompt-todos')">问答即将接入</button>
+            <button class="follow-up-button follow-up-button--ghost" @click="emit('action', 'prompt-todos')">追问待办与负责人</button>
           </div>
         </div>
       </article>

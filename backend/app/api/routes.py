@@ -2,6 +2,8 @@ from fastapi import APIRouter, File, Form, Header, UploadFile
 
 from app.schemas.auth import AuthResponse, LoginRequest, LogoutResponse, RegisterRequest, UserProfile
 from app.schemas.meeting import (
+    MeetingAskRequest,
+    MeetingAskResponse,
     MeetingCreateRequest,
     MeetingDetailResponse,
     MeetingListItem,
@@ -14,6 +16,7 @@ from app.schemas.meeting import (
 from app.services.auth_service import get_current_user, login_user, logout_user, register_user
 from app.services.meeting_service import create_meeting, get_meeting_detail, list_meetings, require_user_from_authorization
 from app.services.minimax_service import build_summary, build_summary_for_meeting
+from app.services.qa_service import ask_meeting_question
 from app.services.transcription_service import (
     get_transcription_job,
     start_transcription_job,
@@ -109,3 +112,13 @@ def read_meeting_records(authorization: str | None = Header(default=None)) -> li
 def read_meeting_record(meeting_id: int, authorization: str | None = Header(default=None)) -> MeetingDetailResponse:
     current_user = require_user_from_authorization(authorization)
     return get_meeting_detail(meeting_id, current_user)
+
+
+@router.post("/meetings/{meeting_id}/ask", response_model=MeetingAskResponse)
+async def ask_meeting(
+    meeting_id: int,
+    payload: MeetingAskRequest,
+    authorization: str | None = Header(default=None),
+) -> MeetingAskResponse:
+    current_user = require_user_from_authorization(authorization)
+    return await ask_meeting_question(meeting_id, payload.question, current_user)
