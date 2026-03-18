@@ -44,6 +44,32 @@ class MeetingSummaryResponse(BaseModel):
     todos: list[str]
 
 
+class MeetingCitation(BaseModel):
+    text: str
+    start: float
+    end: float
+    segment_id: int | None = None
+
+
+class MeetingAskRequest(BaseModel):
+    question: str = Field(..., min_length=1, max_length=1000)
+
+
+class MeetingAskResponse(BaseModel):
+    answer: str
+    citations: list[MeetingCitation] = Field(default_factory=list)
+    reasoning_summary: str | None = None
+
+
+class MeetingQARecordResponse(BaseModel):
+    id: int
+    question: str
+    answer: str
+    citations: list[MeetingCitation] = Field(default_factory=list)
+    reasoning_summary: str | None = None
+    created_at: str
+
+
 class MeetingCreateRequest(BaseModel):
     filename: str = Field(..., min_length=1, max_length=255)
     duration_label: str = Field(default="--:--", max_length=32)
@@ -75,3 +101,4 @@ class MeetingDetailResponse(BaseModel):
     error: str | None = None
     transcript: TranscriptResponse | None = None
     summary: MeetingSummaryResponse | None = None
+    qa_records: list[MeetingQARecordResponse] = Field(default_factory=list)

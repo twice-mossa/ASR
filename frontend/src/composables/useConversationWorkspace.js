@@ -72,14 +72,18 @@ export function useConversationWorkspace({ notify, resolveError }) {
   }
 
   function upsertSidebarConversation(meetingDetail) {
+    const preview =
+      meetingDetail.summary?.summary ||
+      (meetingDetail.transcript?.text
+        ? meetingDetail.status === "summarized"
+          ? "已生成摘要，可继续追问会议细节。"
+          : "已完成转录，可继续追问会议内容。"
+        : meetingDetail.error || "已上传音频，等待转录。");
+
     const nextItem = {
       id: meetingDetail.id,
       title: meetingDetail.title || meetingDetail.filename,
-      preview:
-        meetingDetail.summary?.summary ||
-        meetingDetail.transcript?.text ||
-        meetingDetail.error ||
-        "已上传音频，等待转录。",
+      preview,
       updated_at: meetingDetail.updated_at,
       status: meetingDetail.status,
     };
@@ -134,7 +138,7 @@ export function useConversationWorkspace({ notify, resolveError }) {
       nextMessages.push(buildMessage("assistant", "todo_result", "", { todos: meetingDetail.summary.todos || [] }));
       nextMessages.push(
         buildMessage("assistant", "reasoning", "", {
-          reasoningTitle: "查看整理思路",
+          reasoningTitle: "查看摘要依据",
           reasoningItems: [
             "先抽取会议主议题与关键决策。",
             "再识别反复出现的重点术语和风险点。",
@@ -146,6 +150,19 @@ export function useConversationWorkspace({ notify, resolveError }) {
 
     if (meetingDetail.error) {
       nextMessages.push(buildMessage("system", "system_status", meetingDetail.error, { tone: "error" }));
+    }
+
+    for (const qaRecord of meetingDetail.qa_records || []) {
+      nextMessages.push(buildMessage("user", "user_prompt", qaRecord.question, { createdAt: Date.parse(qaRecord.created_at) || Date.now() }));
+      nextMessages.push(
+        buildMessage("assistant", "qa_answer", "", {
+          answer: qaRecord.answer,
+          citations: qaRecord.citations || [],
+          reasoningTitle: qaRecord.reasoning_summary ? "查看回答依据" : "",
+          reasoningItems: qaRecord.reasoning_summary ? [qaRecord.reasoning_summary] : [],
+          createdAt: Date.parse(qaRecord.created_at) || Date.now(),
+        }),
+      );
     }
 
     messages.value = cloneMessages(nextMessages);
@@ -168,6 +185,8 @@ export function useConversationWorkspace({ notify, resolveError }) {
     workspace.language = meetingDetail.language || "zh";
     workspace.summaryGeneratedAt = meetingDetail.updated_at || "";
     workspace.error = meetingDetail.error || "";
+    workspace.audioSeekTo = null;
+    workspace.audioSeekNonce = 0;
     currentConversationId.value = meetingDetail.id;
     upsertSidebarConversation(meetingDetail);
     rebuildMessages(meetingDetail);

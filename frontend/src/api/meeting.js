@@ -95,3 +95,14 @@ export async function summarizeMeeting({ token, meetingId, text }) {
   });
   return data;
 }
+
+export async function askMeetingQuestion(token, meetingId, question) {
+  const { data } = await apiClient.post(
+    `/meetings/${meetingId}/ask`,
+    { question },
+    {
+      headers: authHeaders(token),
+    },
+  );
+  return data;
+}

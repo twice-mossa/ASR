@@ -1,5 +1,7 @@
 <script setup>
-defineProps({
+import { nextTick, ref, watch } from "vue";
+
+const props = defineProps({
   workspace: {
     type: Object,
     required: true,
@@ -11,6 +13,21 @@ defineProps({
 });
 
 const emit = defineEmits(["upload", "download"]);
+const audioRef = ref(null);
+
+watch(
+  () => props.workspace.audioSeekNonce,
+  async () => {
+    const seconds = props.workspace.audioSeekTo;
+    const audio = audioRef.value;
+    if (!audio || !Number.isFinite(seconds)) {
+      return;
+    }
+
+    await nextTick();
+    audio.currentTime = Math.max(0, seconds);
+  },
+);
 </script>
 
 <template>
@@ -21,7 +38,7 @@ const emit = defineEmits(["upload", "download"]);
       <span>{{ workspace.durationLabel }} · {{ workspace.language || "zh" }}</span>
     </div>
 
-    <audio :src="workspace.audioUrl" class="audio-player" controls preload="metadata" />
+    <audio ref="audioRef" :src="workspace.audioUrl" class="audio-player" controls preload="metadata" />
 
     <div class="audio-tray__actions">
       <button class="tray-button tray-button--ghost" @click="emit('upload')">更换音频</button>
