@@ -22,7 +22,7 @@ export function formatTime(seconds) {
 }
 
 export function formatConversationTime(timestamp) {
-  const date = new Date(timestamp);
+  const date = timestamp ? new Date(timestamp) : new Date();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   const hours = String(date.getHours()).padStart(2, "0");
@@ -62,9 +62,11 @@ export function buildMessage(role, kind, text = "", extra = {}) {
 
 export function defaultWorkspaceState() {
   return {
+    meetingId: null,
     file: null,
     fileName: "",
     audioUrl: "",
+    persistedAudioUrl: "",
     transcript: null,
     summary: null,
     isDragging: false,
@@ -74,6 +76,7 @@ export function defaultWorkspaceState() {
     durationLabel: "--:--",
     language: "zh",
     summaryGeneratedAt: "",
+    error: "",
   };
 }
 
@@ -110,48 +113,6 @@ export function cloneMessages(list) {
     reasoningItems: message.reasoningItems ? [...message.reasoningItems] : undefined,
     sources: message.sources ? [...message.sources] : undefined,
   }));
-}
-
-export function buildConversationTitle(workspaceSnapshot, messageList, fallback = "新的分析") {
-  if (workspaceSnapshot.fileName) {
-    return workspaceSnapshot.fileName;
-  }
-
-  const firstUserMessage = messageList.find((message) => message.role === "user" && message.text);
-  if (firstUserMessage?.text) {
-    return firstUserMessage.text.slice(0, 18);
-  }
-
-  return fallback;
-}
-
-export function buildConversationPreview(workspaceSnapshot, messageList) {
-  const lastMessage = [...messageList].reverse().find((message) => message.text);
-  if (lastMessage?.text) {
-    return lastMessage.text.slice(0, 34);
-  }
-
-  if (workspaceSnapshot.summary?.summary) {
-    return workspaceSnapshot.summary.summary.slice(0, 34);
-  }
-
-  if (workspaceSnapshot.fileName) {
-    return "已上传音频，继续整理这段内容。";
-  }
-
-  return "上传音频后开始分析。";
-}
-
-export function createConversation() {
-  const id = `conversation-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-  return {
-    id,
-    title: "新的分析",
-    preview: "上传音频后开始分析。",
-    updatedAt: Date.now(),
-    workspace: defaultWorkspaceState(),
-    messages: [],
-  };
 }
 
 export function buildNotesMarkdown({ fileName, summary, keywords, todos, language, durationLabel, summaryGeneratedAt }) {

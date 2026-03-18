@@ -5,6 +5,44 @@ const apiClient = axios.create({
   timeout: 120000,
 });
 
+function authHeaders(token) {
+  return token
+    ? {
+        Authorization: `Bearer ${token}`,
+      }
+    : {};
+}
+
+export async function createMeetingRecord({ token, file, durationLabel }) {
+  const formData = new FormData();
+  formData.append("filename", file.name);
+  formData.append("duration_label", durationLabel || "--:--");
+  formData.append("file", file);
+
+  const { data } = await apiClient.post("/meetings", formData, {
+    timeout: 0,
+    headers: {
+      ...authHeaders(token),
+      "Content-Type": "multipart/form-data",
+    },
+  });
+  return data;
+}
+
+export async function listMeetings(token) {
+  const { data } = await apiClient.get("/meetings", {
+    headers: authHeaders(token),
+  });
+  return data;
+}
+
+export async function getMeetingDetail(token, meetingId) {
+  const { data } = await apiClient.get(`/meetings/${meetingId}`, {
+    headers: authHeaders(token),
+  });
+  return data;
+}
+
 export async function transcribeMeeting(file) {
   const formData = new FormData();
   formData.append("file", file);
@@ -31,6 +69,18 @@ export async function startTranscriptionJob(file) {
   return data;
 }
 
+export async function startMeetingTranscriptionJob(token, meetingId) {
+  const { data } = await apiClient.post(
+    `/meetings/${meetingId}/transcribe`,
+    {},
+    {
+      timeout: 0,
+      headers: authHeaders(token),
+    },
+  );
+  return data;
+}
+
 export async function getTranscriptionJob(jobId) {
   const { data } = await apiClient.get(`/transcribe/jobs/${jobId}`, {
     timeout: 0,
@@ -38,9 +88,10 @@ export async function getTranscriptionJob(jobId) {
   return data;
 }
 
-export async function summarizeMeeting(text) {
-  const { data } = await apiClient.post("/summary", {
-    transcribed_text: text,
+export async function summarizeMeeting({ token, meetingId, text }) {
+  const payload = meetingId ? { meeting_id: meetingId } : { transcribed_text: text };
+  const { data } = await apiClient.post("/summary", payload, {
+    headers: authHeaders(token),
   });
   return data;
 }

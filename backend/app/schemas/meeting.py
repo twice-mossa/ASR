@@ -17,11 +17,13 @@ class TranscriptResponse(BaseModel):
 class TranscriptJobCreateResponse(BaseModel):
     job_id: str
     status: str
+    meeting_id: int | None = None
 
 
 class TranscriptJobStatusResponse(BaseModel):
     job_id: str
     status: str
+    meeting_id: int | None = None
     filename: str = ""
     language: str = "zh"
     text: str = ""
@@ -32,10 +34,44 @@ class TranscriptJobStatusResponse(BaseModel):
 
 
 class SummaryRequest(BaseModel):
-    transcribed_text: str
+    meeting_id: int | None = None
+    transcribed_text: str = ""
 
 
 class MeetingSummaryResponse(BaseModel):
     summary: str
     keywords: list[str]
     todos: list[str]
+
+
+class MeetingCreateRequest(BaseModel):
+    filename: str = Field(..., min_length=1, max_length=255)
+    duration_label: str = Field(default="--:--", max_length=32)
+
+
+class MeetingListItem(BaseModel):
+    id: int
+    title: str
+    filename: str
+    duration_label: str
+    language: str
+    status: str
+    preview: str
+    created_at: str
+    updated_at: str
+    has_summary: bool
+
+
+class MeetingDetailResponse(BaseModel):
+    id: int
+    title: str
+    filename: str
+    duration_label: str
+    language: str
+    status: str
+    audio_url: str
+    created_at: str
+    updated_at: str
+    error: str | None = None
+    transcript: TranscriptResponse | None = None
+    summary: MeetingSummaryResponse | None = None

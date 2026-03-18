@@ -13,7 +13,7 @@ defineProps({
     default: () => [],
   },
   activeConversationId: {
-    type: String,
+    type: [String, Number],
     default: "",
   },
 });
@@ -35,7 +35,7 @@ const emit = defineEmits(["select-conversation", "new-analysis", "request-login"
 
     <section class="history-block">
       <div class="block-header">
-        <span>历史对话</span>
+        <span>历史会议</span>
         <small>{{ conversations.length }}</small>
       </div>
 
