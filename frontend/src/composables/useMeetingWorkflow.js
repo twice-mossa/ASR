@@ -73,6 +73,10 @@ export function useMeetingWorkflow({
       return "正在回答问题";
     }
 
+    if (["processing", "pending"].includes(workspace.knowledgeStatus)) {
+      return "整理知识包";
+    }
+
     if (workLoading.email) {
       return "正在发送邮件";
     }
@@ -116,6 +120,10 @@ export function useMeetingWorkflow({
       return "先开始转录，随后即可围绕当前会议继续提问。";
     }
 
+    if (["processing", "pending"].includes(workspace.knowledgeStatus)) {
+      return "正在整理会议主题和证据块，问答很快会更快更稳。";
+    }
+
     return "围绕当前会议继续提问，我会结合转写片段给出回答和引用依据。";
   });
   const headerDescription = computed(() => {
@@ -132,6 +140,8 @@ export function useMeetingWorkflow({
             ? "正在停止转录，当前结果会保留"
             : ["transcribing", "processing", "queued"].includes(workspace.transcriptionStatus)
               ? "正在处理中，转录内容会逐段刷新"
+              : ["processing", "pending"].includes(workspace.knowledgeStatus)
+                ? "正在整理会议主题和证据块"
               : workspace.transcriptionStatus === "stopped"
                 ? "转录已停止，可重新发起转录"
                 : workspace.transcriptionStatus === "failed"
@@ -631,11 +641,14 @@ export function useMeetingWorkflow({
     try {
       const result = await askMeetingQuestion(session.token, workspace.meetingId, text);
       upsertMessage(pendingId, {
-        text: "回答已生成，下面附上引用片段。",
+        text: "回答已生成，下面附上主题结论和证据块。",
       });
       pushMessage("assistant", "qa_answer", "", {
         answer: result.answer,
         citations: result.citations || [],
+        answerType: result.answer_type || "fact",
+        topicLabels: result.topic_labels || [],
+        evidenceBlocks: result.evidence_blocks || [],
         reasoningTitle: result.reasoning_summary ? "查看回答依据" : "",
         reasoningItems: result.reasoning_summary ? [result.reasoning_summary] : [],
       });

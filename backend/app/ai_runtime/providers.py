@@ -39,6 +39,30 @@ def chat_model_for_qa() -> ChatOpenAI:
     )
 
 
+def chat_model_for_qa_planner() -> ChatOpenAI:
+    api_key, base_url = _chat_provider_settings()
+    if not api_key:
+        raise ValueError("Missing chat model API key for QA planner runtime")
+    return ChatOpenAI(
+        api_key=api_key,
+        base_url=base_url or None,
+        model=settings.chat_model_qa_planner or settings.chat_model_qa or settings.chat_model_summary or "MiniMax-M2.5",
+        temperature=0.1,
+    )
+
+
+def chat_model_for_qa_answer() -> ChatOpenAI:
+    api_key, base_url = _chat_provider_settings()
+    if not api_key:
+        raise ValueError("Missing chat model API key for QA answer runtime")
+    return ChatOpenAI(
+        api_key=api_key,
+        base_url=base_url or None,
+        model=settings.chat_model_qa_answer or settings.chat_model_qa or settings.chat_model_summary or "MiniMax-M2.5",
+        temperature=0.2,
+    )
+
+
 def embedding_model(*, require_real: bool = False):
     provider = (settings.embedding_provider or "local").strip().lower()
     if provider == "local":

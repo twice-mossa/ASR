@@ -11,12 +11,20 @@ from sqlalchemy import delete, select
 
 from app.core.config import settings
 from app.core.database import SessionLocal
-from app.models import Meeting, MeetingQARecord, MeetingSummary, MeetingSummaryEmailDelivery, TranscriptSegment
+from app.models import (
+    Meeting,
+    MeetingKnowledgePack,
+    MeetingQARecord,
+    MeetingSummary,
+    MeetingSummaryEmailDelivery,
+    TranscriptSegment,
+)
 from app.schemas.auth import UserProfile
 from app.schemas.meeting import (
     MeetingCitation,
     MeetingCreateRequest,
     MeetingDetailResponse,
+    MeetingEvidenceBlock,
     MeetingListItem,
     MeetingQARecordResponse,
     MeetingSummaryEmailStatusResponse,
@@ -114,6 +122,14 @@ def _build_qa_records(records: list[MeetingQARecord]) -> list[MeetingQARecordRes
             citations = json.loads(record.citations_json or "[]")
         except json.JSONDecodeError:
             citations = []
+        try:
+            topic_labels = json.loads(record.topic_labels_json or "[]")
+        except json.JSONDecodeError:
+            topic_labels = []
+        try:
+            evidence_blocks = json.loads(record.evidence_blocks_json or "[]")
+        except json.JSONDecodeError:
+            evidence_blocks = []
 
         items.append(
             MeetingQARecordResponse(
@@ -131,6 +147,28 @@ def _build_qa_records(records: list[MeetingQARecord]) -> list[MeetingQARecordRes
                     if isinstance(item, dict)
                 ],
                 reasoning_summary=record.reasoning_summary or None,
+                answer_type=record.answer_type or "fact",
+                topic_labels=[str(item) for item in topic_labels if item is not None],
+                evidence_blocks=[
+                    MeetingEvidenceBlock(
+                        title=str(block.get("title") or "证据块"),
+                        start=float(block.get("start") or 0.0),
+                        end=float(block.get("end") or 0.0),
+                        summary=str(block.get("summary") or ""),
+                        citations=[
+                            MeetingCitation(
+                                text=str(item.get("text") or ""),
+                                start=float(item.get("start") or 0.0),
+                                end=float(item.get("end") or 0.0),
+                                segment_id=int(item["segment_id"]) if item.get("segment_id") is not None else None,
+                            )
+                            for item in (block.get("citations") or [])
+                            if isinstance(item, dict)
+                        ],
+                    )
+                    for block in evidence_blocks
+                    if isinstance(block, dict)
+                ],
                 created_at=_to_iso(record.created_at),
             )
         )
@@ -219,6 +257,7 @@ def create_meeting(payload: MeetingCreateRequest, file: UploadFile, current_user
             transcription_job=None,
             summary=None,
             summary_email=_build_summary_email_status(None, current_user),
+            knowledge_status="idle",
         )
 
 
@@ -280,6 +319,9 @@ def get_meeting_detail(meeting_id: int, current_user: UserProfile) -> MeetingDet
             .where(MeetingQARecord.meeting_id == meeting.id)
             .order_by(MeetingQARecord.created_at.asc(), MeetingQARecord.id.asc())
         ).scalars().all()
+        knowledge_pack = db.execute(
+            select(MeetingKnowledgePack).where(MeetingKnowledgePack.meeting_id == meeting.id)
+        ).scalar_one_or_none()
         transcription_job = _build_transcription_job(int(meeting.id))
 
         return MeetingDetailResponse(
@@ -298,6 +340,7 @@ def get_meeting_detail(meeting_id: int, current_user: UserProfile) -> MeetingDet
             summary=_build_summary(summary),
             summary_email=_build_summary_email_status(summary_email, current_user),
             qa_records=_build_qa_records(qa_records),
+            knowledge_status=str(knowledge_pack.status) if knowledge_pack else "idle",
         )
 
 
@@ -346,7 +389,16 @@ def reset_meeting_transcript(meeting_id: int, status_value: str = "transcribing"
         meeting.status = status_value
         meeting.error_message = ""
         db.execute(delete(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting_id))
+        db.execute(delete(MeetingKnowledgePack).where(MeetingKnowledgePack.meeting_id == meeting_id))
         db.commit()
+
+    try:
+        from app.ai_runtime.vectorstore import delete_meeting_index, delete_meeting_semantic_chunks
+
+        delete_meeting_index(meeting_id)
+        delete_meeting_semantic_chunks(meeting_id)
+    except Exception:
+        pass
 
 
 def save_transcript_result(meeting_id: int, transcript: TranscriptResponse, status_value: str = "transcribed") -> None:
@@ -376,9 +428,11 @@ def save_transcript_result(meeting_id: int, transcript: TranscriptResponse, stat
         db.commit()
 
     try:
+        from app.ai_runtime.knowledge_pack import schedule_meeting_knowledge_pack_refresh
         from app.ai_runtime.vectorstore import schedule_meeting_index_upsert
 
         schedule_meeting_index_upsert(meeting_id)
+        schedule_meeting_knowledge_pack_refresh(meeting_id)
     except Exception:
         # Vector indexing should never block the primary transcription flow.
         pass
@@ -443,9 +497,17 @@ def save_meeting_summary(meeting_id: int, summary: MeetingSummaryResponse) -> No
         meeting.error_message = ""
         db.commit()
 
+    try:
+        from app.ai_runtime.knowledge_pack import schedule_meeting_knowledge_pack_refresh
+
+        schedule_meeting_knowledge_pack_refresh(meeting_id)
+    except Exception:
+        pass
+
 
 def _delete_meeting_related_rows(db, meeting_id: int) -> None:
     db.execute(delete(MeetingQARecord).where(MeetingQARecord.meeting_id == meeting_id))
+    db.execute(delete(MeetingKnowledgePack).where(MeetingKnowledgePack.meeting_id == meeting_id))
     db.execute(delete(MeetingSummaryEmailDelivery).where(MeetingSummaryEmailDelivery.meeting_id == meeting_id))
     db.execute(delete(MeetingSummary).where(MeetingSummary.meeting_id == meeting_id))
     db.execute(delete(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting_id))
@@ -453,9 +515,10 @@ def _delete_meeting_related_rows(db, meeting_id: int) -> None:
 
 def _delete_meeting_index(meeting_id: int) -> None:
     try:
-        from app.ai_runtime.vectorstore import delete_meeting_index
+        from app.ai_runtime.vectorstore import delete_meeting_index, delete_meeting_semantic_chunks
 
         delete_meeting_index(meeting_id)
+        delete_meeting_semantic_chunks(meeting_id)
     except Exception:
         pass
 

@@ -86,6 +86,7 @@ export function defaultWorkspaceState() {
       last_sent_at: null,
       last_error: null,
     },
+    knowledgeStatus: "idle",
     error: "",
     audioSeekTo: null,
     audioSeekNonce: 0,
@@ -158,6 +159,13 @@ export function cloneMessages(list) {
     todos: message.todos ? [...message.todos] : undefined,
     reasoningItems: message.reasoningItems ? [...message.reasoningItems] : undefined,
     citations: message.citations ? message.citations.map((citation) => ({ ...citation })) : undefined,
+    topicLabels: message.topicLabels ? [...message.topicLabels] : undefined,
+    evidenceBlocks: message.evidenceBlocks
+      ? message.evidenceBlocks.map((block) => ({
+          ...block,
+          citations: (block.citations || []).map((citation) => ({ ...citation })),
+        }))
+      : undefined,
     sources: message.sources ? [...message.sources] : undefined,
   }));
 }

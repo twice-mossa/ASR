@@ -123,6 +123,9 @@ const welcomeCards = [
             v-if="message.kind === 'qa_answer'"
             :answer="message.answer"
             :citations="message.citations || []"
+            :answer-type="message.answerType || 'fact'"
+            :topic-labels="message.topicLabels || []"
+            :evidence-blocks="message.evidenceBlocks || []"
             @seek="emit('action', { type: 'seek-audio', seconds: $event })"
           />
           <ReasoningCard

@@ -34,6 +34,12 @@ def _collection_name() -> str:
     return f"meeting-segments-{provider}-{model}"
 
 
+def _semantic_collection_name() -> str:
+    provider = _sanitize_collection_suffix(settings.embedding_provider or "local")
+    model = _sanitize_collection_suffix(settings.embedding_model or "default")
+    return f"meeting-semantic-chunks-{provider}-{model}"
+
+
 @lru_cache(maxsize=1)
 def get_vector_store() -> Chroma:
     persist_dir = Path(settings.vector_store_dir)
@@ -45,8 +51,23 @@ def get_vector_store() -> Chroma:
     )
 
 
+@lru_cache(maxsize=1)
+def get_semantic_vector_store() -> Chroma:
+    persist_dir = Path(settings.vector_store_dir)
+    persist_dir.mkdir(parents=True, exist_ok=True)
+    return Chroma(
+        collection_name=_semantic_collection_name(),
+        persist_directory=str(persist_dir),
+        embedding_function=embedding_model(require_real=settings.qa_require_real_embeddings),
+    )
+
+
 def _segment_doc_id(meeting_id: int, segment_id: int) -> str:
     return f"meeting:{meeting_id}:segment:{segment_id}"
+
+
+def _semantic_chunk_doc_id(meeting_id: int, chunk_id: str) -> str:
+    return f"meeting:{meeting_id}:semantic-chunk:{chunk_id}"
 
 
 def _fetch_meeting_segments(meeting_id: int) -> tuple[Meeting | None, list[TranscriptSegment]]:
@@ -97,6 +118,15 @@ def delete_meeting_index(meeting_id: int) -> int:
     return len(existing_ids)
 
 
+def delete_meeting_semantic_chunks(meeting_id: int) -> int:
+    store = get_semantic_vector_store()
+    existing_ids = _meeting_doc_ids(store, meeting_id)
+    if not existing_ids:
+        return 0
+    store.delete(ids=existing_ids)
+    return len(existing_ids)
+
+
 def upsert_meeting_index(meeting_id: int) -> int:
     meeting, segments = _fetch_meeting_segments(meeting_id)
     if meeting is None or not segments:
@@ -129,6 +159,16 @@ def schedule_meeting_index_upsert(meeting_id: int) -> None:
     Thread(target=_run, name=f"meeting-index-{meeting_id}", daemon=True).start()
 
 
+def schedule_meeting_semantic_chunk_upsert(meeting_id: int, chunks: list[dict[str, Any]]) -> None:
+    def _run() -> None:
+        try:
+            upsert_meeting_semantic_chunks(meeting_id, chunks)
+        except Exception:
+            logger.exception("Failed to update semantic chunk index for meeting %s", meeting_id)
+
+    Thread(target=_run, name=f"meeting-semantic-index-{meeting_id}", daemon=True).start()
+
+
 def ensure_meeting_index(meeting_id: int) -> None:
     if has_meeting_index(meeting_id):
         return
@@ -137,6 +177,50 @@ def ensure_meeting_index(meeting_id: int) -> None:
 
 def retrieve_meeting_segments(meeting_id: int, query: str, *, k: int = 6) -> list[Document]:
     store = get_vector_store()
+    docs = store.similarity_search(query=query, k=k, filter={"meeting_id": int(meeting_id)})
+    return list(docs or [])
+
+
+def upsert_meeting_semantic_chunks(meeting_id: int, chunks: list[dict[str, Any]]) -> int:
+    store = get_semantic_vector_store()
+    existing_ids = _meeting_doc_ids(store, meeting_id)
+    if existing_ids:
+        try:
+            delete_meeting_semantic_chunks(meeting_id)
+        except Exception:
+            logger.exception("Failed to delete previous semantic docs for meeting %s", meeting_id)
+
+    documents: list[Document] = []
+    ids: list[str] = []
+    for chunk in chunks:
+        text = str(chunk.get("text") or "").strip()
+        chunk_id = str(chunk.get("chunk_id") or "").strip()
+        if not text or not chunk_id:
+            continue
+        documents.append(
+            Document(
+                page_content=text,
+                metadata={
+                    "meeting_id": int(meeting_id),
+                    "chunk_id": chunk_id,
+                    "start": float(chunk.get("start") or 0.0),
+                    "end": float(chunk.get("end") or 0.0),
+                    "title": str(chunk.get("title") or ""),
+                    "topic_labels": " | ".join(str(item) for item in chunk.get("topic_labels") or []),
+                },
+            )
+        )
+        ids.append(_semantic_chunk_doc_id(meeting_id, chunk_id))
+
+    if not documents:
+        return 0
+
+    store.add_documents(documents=documents, ids=ids)
+    return len(documents)
+
+
+def retrieve_meeting_semantic_chunks(meeting_id: int, query: str, *, k: int = 6) -> list[Document]:
+    store = get_semantic_vector_store()
     docs = store.similarity_search(query=query, k=k, filter={"meeting_id": int(meeting_id)})
     return list(docs or [])
 

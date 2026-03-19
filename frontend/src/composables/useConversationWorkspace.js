@@ -190,6 +190,10 @@ export function useConversationWorkspace({ notify, resolveError }) {
       );
     }
 
+    if (["processing", "pending"].includes(meetingDetail.knowledge_status || "")) {
+      nextMessages.push(buildMessage("system", "system_status", "正在整理会议主题和证据块，后续追问会更快更稳。"));
+    }
+
     if (meetingDetail.error) {
       nextMessages.push(buildMessage("system", "system_status", meetingDetail.error, { tone: "error" }));
     }
@@ -200,6 +204,9 @@ export function useConversationWorkspace({ notify, resolveError }) {
         buildMessage("assistant", "qa_answer", "", {
           answer: qaRecord.answer,
           citations: qaRecord.citations || [],
+          answerType: qaRecord.answer_type || "fact",
+          topicLabels: qaRecord.topic_labels || [],
+          evidenceBlocks: qaRecord.evidence_blocks || [],
           reasoningTitle: qaRecord.reasoning_summary ? "查看回答依据" : "",
           reasoningItems: qaRecord.reasoning_summary ? [qaRecord.reasoning_summary] : [],
           createdAt: Date.parse(qaRecord.created_at) || Date.now(),
@@ -229,6 +236,7 @@ export function useConversationWorkspace({ notify, resolveError }) {
     workspace.language = meetingDetail.language || "zh";
     workspace.summaryGeneratedAt = meetingDetail.updated_at || "";
     workspace.summaryEmail = cloneSummaryEmail(meetingDetail.summary_email);
+    workspace.knowledgeStatus = meetingDetail.knowledge_status || "idle";
     workspace.error = meetingDetail.error || "";
     workspace.audioSeekTo = null;
     workspace.audioSeekNonce = 0;

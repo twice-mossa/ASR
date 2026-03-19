@@ -69,6 +69,14 @@ class MeetingCitation(BaseModel):
     segment_id: int | None = None
 
 
+class MeetingEvidenceBlock(BaseModel):
+    title: str
+    start: float
+    end: float
+    summary: str
+    citations: list[MeetingCitation] = Field(default_factory=list)
+
+
 class MeetingAskRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=1000)
 
@@ -77,6 +85,9 @@ class MeetingAskResponse(BaseModel):
     answer: str
     citations: list[MeetingCitation] = Field(default_factory=list)
     reasoning_summary: str | None = None
+    answer_type: str | None = None
+    topic_labels: list[str] = Field(default_factory=list)
+    evidence_blocks: list[MeetingEvidenceBlock] = Field(default_factory=list)
 
 
 class MeetingQARecordResponse(BaseModel):
@@ -85,6 +96,9 @@ class MeetingQARecordResponse(BaseModel):
     answer: str
     citations: list[MeetingCitation] = Field(default_factory=list)
     reasoning_summary: str | None = None
+    answer_type: str | None = None
+    topic_labels: list[str] = Field(default_factory=list)
+    evidence_blocks: list[MeetingEvidenceBlock] = Field(default_factory=list)
     created_at: str
 
 
@@ -122,3 +136,4 @@ class MeetingDetailResponse(BaseModel):
     summary: MeetingSummaryResponse | None = None
     summary_email: MeetingSummaryEmailStatusResponse
     qa_records: list[MeetingQARecordResponse] = Field(default_factory=list)
+    knowledge_status: str = "idle"

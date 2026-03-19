@@ -22,51 +22,12 @@ from app.ai_runtime.qa_graph import get_qa_graph
 from app.core.config import settings
 from app.core.database import Base, SessionLocal, engine
 from app.main import app
-from app.models import Meeting, MeetingQARecord, MeetingSummary, TranscriptSegment, User
+from app.models import Meeting, MeetingKnowledgePack, MeetingQARecord, MeetingSummary, TranscriptSegment, User
 from app.schemas.auth import UserProfile
 from app.services.auth_service import _SESSIONS
 
 
-class _FakeStructuredRunnable:
-    def __init__(self, schema):
-        self.schema = schema
-
-    async def ainvoke(self, prompt):
-        name = self.schema.__name__
-        if name == "QuestionIntent":
-            return self.schema(
-                question_type="fact",
-                rewritten_question="会议里关于充电宝的讨论是什么",
-                entities=["充电宝", "大容量", "安全认证"],
-                anchors=[],
-                use_recent_history=False,
-            )
-        if name == "RerankedEvidenceWindows":
-            return self.schema(
-                ordered_window_ids=[1],
-                reasoning_summary="优先保留直接讨论充电宝卖点的窗口。",
-            )
-        if name == "GroundedAnswerStructuredOutput":
-            return self.schema(
-                answer="会议明确提到，充电宝卖点要突出大容量和安全认证。",
-                reasoning_summary="相关片段直接讨论了充电宝的主打卖点。",
-                citation_window_ids=[1],
-            )
-        if name == "GroundedAnswerCheck":
-            return self.schema(
-                grounded=True,
-                answer="会议明确提到，充电宝卖点要突出大容量和安全认证。",
-                reasoning_summary="证据窗口里直接出现了充电宝、大容量和安全认证。",
-                citation_window_ids=[1],
-                insufficiency_reason="",
-            )
-        raise AssertionError(f"Unexpected schema: {name}")
-
-
 class _FakeChatModel:
-    def with_structured_output(self, schema):
-        return _FakeStructuredRunnable(schema)
-
     async def ainvoke(self, prompt):
         text = "\n".join(part[1] for part in prompt if isinstance(part, tuple) and len(part) > 1)
         if "question_type" in text and "rewritten_question" in text:
@@ -76,21 +37,8 @@ class _FakeChatModel:
                 {
                     "content": (
                         '{"question_type":"fact","rewritten_question":"会议里关于充电宝的讨论是什么",'
-                        '"entities":["充电宝","大容量","安全认证"],"anchors":[],"use_recent_history":false}'
-                    )
-                },
-            )()
-        if "ordered_window_ids" in text:
-            return type("FakeMessage", (), {"content": '{"ordered_window_ids":[1],"reasoning_summary":"优先保留充电宝卖点窗口。"}'})()
-        if '"grounded":true' in text:
-            return type(
-                "FakeMessage",
-                (),
-                {
-                    "content": (
-                        '{"grounded":true,"answer":"会议明确提到，充电宝卖点要突出大容量和安全认证。",'
-                        '"reasoning_summary":"证据窗口里直接出现了充电宝、大容量和安全认证。",'
-                        '"citation_window_ids":[1],"insufficiency_reason":""}'
+                        '"entities":["充电宝","大容量","安全认证"],"anchors":[],"use_recent_history":false,'
+                        '"focus_topics":["充电宝"],"summary_signals":["安全认证"]}'
                     )
                 },
             )()
@@ -100,7 +48,8 @@ class _FakeChatModel:
             {
                 "content": (
                     '{"answer":"会议明确提到，充电宝卖点要突出大容量和安全认证。",'
-                    '"reasoning_summary":"相关片段直接讨论了充电宝的主打卖点。","citation_window_ids":[1]}'
+                    '"reasoning_summary":"答案结合了会议摘要和关于充电宝卖点的原文证据。",'
+                    '"citation_window_ids":[1],"answer_type":"fact","topic_labels":["充电宝卖点"]}'
                 )
             },
         )()
@@ -127,6 +76,7 @@ class QAGraphQualityTestCase(unittest.TestCase):
 
         with SessionLocal() as db:
             db.execute(delete(MeetingQARecord))
+            db.execute(delete(MeetingKnowledgePack))
             db.execute(delete(MeetingSummary))
             db.execute(delete(TranscriptSegment))
             db.execute(delete(Meeting))
@@ -187,15 +137,42 @@ class QAGraphQualityTestCase(unittest.TestCase):
         get_qa_graph.cache_clear()
 
     def test_hybrid_retrieval_keeps_relevant_charge_bank_evidence(self):
+        knowledge_pack = {
+            "status": "ready",
+            "semantic_chunks": [
+                {
+                    "chunk_id": "chunk-1",
+                    "start": 6.0,
+                    "end": 20.0,
+                    "text": "关于充电宝，大家认为要突出大容量和安全认证。包装设计暂时不做大改。",
+                    "segment_ids": [2, 3],
+                    "title": "充电宝卖点",
+                    "topic_labels": ["充电宝卖点"],
+                }
+            ],
+            "topic_map": [
+                {
+                    "title": "充电宝卖点",
+                    "summary": "重点讨论充电宝的大容量和安全认证。",
+                    "keywords": ["充电宝", "大容量", "安全认证"],
+                    "supporting_chunk_ids": ["chunk-1"],
+                }
+            ],
+            "discussion_points": ["充电宝卖点要突出大容量和安全认证。"],
+            "summary_context": {
+                "summary": "会议讨论了销售平台、充电宝卖点和后续发售节奏。",
+                "keywords": ["销售平台", "充电宝", "安全认证"],
+                "todos": ["确认发售节奏"],
+            },
+        }
         fake_docs = [
-            Document(page_content="包装设计暂时不做大改。", metadata={"segment_id": 3}),
+            Document(page_content="关于充电宝，大家认为要突出大容量和安全认证。", metadata={"chunk_id": "chunk-1"}),
         ]
         with patch("app.ai_runtime.qa_graph._ensure_qa_runtime_ready"), patch(
-            "app.ai_runtime.qa_graph.ensure_meeting_index"
-        ), patch("app.ai_runtime.qa_graph.retrieve_meeting_segments", return_value=fake_docs), patch(
-            "app.ai_runtime.qa_graph.chat_model_for_qa",
-            return_value=_FakeChatModel(),
-        ):
+            "app.ai_runtime.qa_graph.ensure_meeting_knowledge_pack", return_value=knowledge_pack
+        ), patch("app.ai_runtime.qa_graph.retrieve_meeting_semantic_chunks", return_value=fake_docs), patch(
+            "app.ai_runtime.qa_graph.chat_model_for_qa_planner", return_value=_FakeChatModel()
+        ), patch("app.ai_runtime.qa_graph.chat_model_for_qa_answer", return_value=_FakeChatModel()):
             response = self.client.post(
                 "/api/meetings/1/ask",
                 json={"question": "关于充电宝说了什么？"},
@@ -208,6 +185,8 @@ class QAGraphQualityTestCase(unittest.TestCase):
         self.assertIn("大容量", body["answer"])
         self.assertNotIn("我先根据当前会议里检索到的相关片段回答", body["answer"])
         self.assertTrue(body["citations"])
+        self.assertTrue(body["evidence_blocks"])
+        self.assertEqual(body["topic_labels"], ["充电宝卖点"])
         joined_citations = "\n".join(item["text"] for item in body["citations"])
         self.assertIn("充电宝", joined_citations)
         self.assertIn("安全认证", joined_citations)

@@ -24,7 +24,7 @@ from sqlalchemy import delete
 
 from app.core.database import Base, SessionLocal, engine
 from app.main import app
-from app.models import Meeting, MeetingQARecord, MeetingSummary, MeetingSummaryEmailDelivery, TranscriptSegment, User
+from app.models import Meeting, MeetingKnowledgePack, MeetingQARecord, MeetingSummary, MeetingSummaryEmailDelivery, TranscriptSegment, User
 from app.schemas.auth import UserProfile
 from app.schemas.meeting import MeetingSummaryResponse, TranscriptJobStatusResponse
 from app.services.auth_service import _SESSIONS
@@ -52,6 +52,7 @@ class MeetingQATestCase(unittest.TestCase):
 
         with SessionLocal() as db:
             db.execute(delete(MeetingQARecord))
+            db.execute(delete(MeetingKnowledgePack))
             db.execute(delete(MeetingSummaryEmailDelivery))
             db.execute(delete(MeetingSummary))
             db.execute(delete(TranscriptSegment))
@@ -126,6 +127,7 @@ class MeetingQATestCase(unittest.TestCase):
         detail_body = detail.json()
         self.assertEqual(len(detail_body["qa_records"]), 1)
         self.assertEqual(detail_body["qa_records"][0]["question"], "谁负责整理风险清单？")
+        self.assertIn("knowledge_status", detail_body)
 
     def test_rejects_question_for_untranscribed_meeting(self):
         with SessionLocal() as db:
