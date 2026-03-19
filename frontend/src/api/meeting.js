@@ -88,6 +88,18 @@ export async function getTranscriptionJob(jobId) {
   return data;
 }
 
+export async function stopTranscriptionJob(token, jobId) {
+  const { data } = await apiClient.post(
+    `/transcribe/jobs/${jobId}/stop`,
+    {},
+    {
+      timeout: 0,
+      headers: authHeaders(token),
+    },
+  );
+  return data;
+}
+
 export async function summarizeMeeting({ token, meetingId, text }) {
   const payload = meetingId ? { meeting_id: meetingId } : { transcribed_text: text };
   const { data } = await apiClient.post("/summary", payload, {
@@ -104,5 +116,30 @@ export async function askMeetingQuestion(token, meetingId, question) {
       headers: authHeaders(token),
     },
   );
+  return data;
+}
+
+export async function sendMeetingSummaryEmail(token, meetingId) {
+  const { data } = await apiClient.post(
+    `/meetings/${meetingId}/send-summary-email`,
+    {},
+    {
+      headers: authHeaders(token),
+    },
+  );
+  return data;
+}
+
+export async function deleteMeeting(token, meetingId) {
+  const { data } = await apiClient.delete(`/meetings/${meetingId}`, {
+    headers: authHeaders(token),
+  });
+  return data;
+}
+
+export async function clearMeetings(token) {
+  const { data } = await apiClient.delete("/meetings", {
+    headers: authHeaders(token),
+  });
   return data;
 }

@@ -11,7 +11,7 @@ from sqlalchemy import delete, select
 
 from app.core.config import settings
 from app.core.database import SessionLocal
-from app.models import Meeting, MeetingQARecord, MeetingSummary, TranscriptSegment
+from app.models import Meeting, MeetingQARecord, MeetingSummary, MeetingSummaryEmailDelivery, TranscriptSegment
 from app.schemas.auth import UserProfile
 from app.schemas.meeting import (
     MeetingCitation,
@@ -19,6 +19,7 @@ from app.schemas.meeting import (
     MeetingDetailResponse,
     MeetingListItem,
     MeetingQARecordResponse,
+    MeetingSummaryEmailStatusResponse,
     MeetingSummaryResponse,
     TranscriptResponse,
     TranscriptSegment as TranscriptSegmentSchema,
@@ -73,6 +74,39 @@ def _build_summary(summary: MeetingSummary | None) -> MeetingSummaryResponse | N
     )
 
 
+def _build_transcription_job(meeting_id: int):
+    try:
+        from app.services.transcription_service import get_active_meeting_transcription_job
+
+        return get_active_meeting_transcription_job(meeting_id)
+    except Exception:
+        return None
+
+
+def _smtp_enabled() -> bool:
+    return bool(
+        settings.smtp_host
+        and settings.smtp_port
+        and settings.smtp_username
+        and settings.smtp_password
+        and settings.smtp_from_email
+    )
+
+
+def _build_summary_email_status(
+    delivery: MeetingSummaryEmailDelivery | None,
+    current_user: UserProfile,
+) -> MeetingSummaryEmailStatusResponse:
+    return MeetingSummaryEmailStatusResponse(
+        enabled=_smtp_enabled(),
+        recipient_email=str(delivery.recipient_email) if delivery else current_user.email,
+        last_status=str(delivery.status) if delivery else "idle",
+        last_delivery_type=str(delivery.delivery_type) if delivery else None,
+        last_sent_at=_to_iso(delivery.created_at) if delivery and delivery.status == "sent" else None,
+        last_error=str(delivery.error_message or "") if delivery and delivery.status == "failed" else None,
+    )
+
+
 def _build_qa_records(records: list[MeetingQARecord]) -> list[MeetingQARecordResponse]:
     items: list[MeetingQARecordResponse] = []
     for record in records:
@@ -106,6 +140,10 @@ def _build_qa_records(records: list[MeetingQARecord]) -> list[MeetingQARecordRes
 def _meeting_preview(meeting: Meeting, summary: MeetingSummary | None) -> str:
     if summary and summary.summary:
         return "已生成摘要，可继续追问会议细节。"
+    if meeting.status == "transcribing":
+        return "正在转录，已识别内容会持续刷新。"
+    if meeting.status == "stopped":
+        return "已停止转录，保留了当前已识别内容。"
     if meeting.transcript_text:
         return "已完成转录，可继续追问会议内容。"
     if meeting.status == "failed" and meeting.error_message:
@@ -124,6 +162,13 @@ def _get_owned_meeting(db, meeting_id: int, user_id: int) -> Meeting:
     if meeting is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="会议记录不存在")
     return meeting
+
+
+def ensure_owned_meeting(meeting_id: int, current_user: UserProfile) -> Meeting:
+    with _get_session() as db:
+        meeting = _get_owned_meeting(db, meeting_id, current_user.id)
+        db.expunge(meeting)
+        return meeting
 
 
 def create_meeting(payload: MeetingCreateRequest, file: UploadFile, current_user: UserProfile) -> MeetingDetailResponse:
@@ -171,7 +216,9 @@ def create_meeting(payload: MeetingCreateRequest, file: UploadFile, current_user
             updated_at=_to_iso(meeting.updated_at),
             error=None,
             transcript=None,
+            transcription_job=None,
             summary=None,
+            summary_email=_build_summary_email_status(None, current_user),
         )
 
 
@@ -222,11 +269,18 @@ def get_meeting_detail(meeting_id: int, current_user: UserProfile) -> MeetingDet
         summary = db.execute(
             select(MeetingSummary).where(MeetingSummary.meeting_id == meeting.id)
         ).scalar_one_or_none()
+        summary_email = db.execute(
+            select(MeetingSummaryEmailDelivery)
+            .where(MeetingSummaryEmailDelivery.meeting_id == meeting.id)
+            .order_by(MeetingSummaryEmailDelivery.created_at.desc(), MeetingSummaryEmailDelivery.id.desc())
+            .limit(1)
+        ).scalar_one_or_none()
         qa_records = db.execute(
             select(MeetingQARecord)
             .where(MeetingQARecord.meeting_id == meeting.id)
             .order_by(MeetingQARecord.created_at.asc(), MeetingQARecord.id.asc())
         ).scalars().all()
+        transcription_job = _build_transcription_job(int(meeting.id))
 
         return MeetingDetailResponse(
             id=int(meeting.id),
@@ -240,7 +294,9 @@ def get_meeting_detail(meeting_id: int, current_user: UserProfile) -> MeetingDet
             updated_at=_to_iso(meeting.updated_at),
             error=meeting.error_message or None,
             transcript=_build_transcript(meeting, segments),
+            transcription_job=transcription_job,
             summary=_build_summary(summary),
+            summary_email=_build_summary_email_status(summary_email, current_user),
             qa_records=_build_qa_records(qa_records),
         )
 
@@ -280,7 +336,59 @@ def update_meeting_status(
         db.commit()
 
 
+def reset_meeting_transcript(meeting_id: int, status_value: str = "transcribing") -> None:
+    with _get_session() as db:
+        meeting = db.execute(select(Meeting).where(Meeting.id == meeting_id)).scalar_one_or_none()
+        if meeting is None:
+            return
+
+        meeting.transcript_text = ""
+        meeting.status = status_value
+        meeting.error_message = ""
+        db.execute(delete(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting_id))
+        db.commit()
+
+
 def save_transcript_result(meeting_id: int, transcript: TranscriptResponse, status_value: str = "transcribed") -> None:
+    with _get_session() as db:
+        meeting = db.execute(select(Meeting).where(Meeting.id == meeting_id)).scalar_one_or_none()
+        if meeting is None:
+            return
+
+        meeting.filename = transcript.filename or meeting.filename
+        meeting.title = Path(meeting.filename).stem or meeting.filename
+        meeting.language = transcript.language or meeting.language or "zh"
+        meeting.transcript_text = transcript.text or ""
+        meeting.status = status_value
+        meeting.error_message = ""
+
+        db.execute(delete(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting_id))
+        for segment in transcript.segments:
+            db.add(
+                TranscriptSegment(
+                    meeting_id=meeting_id,
+                    start=float(segment.start),
+                    end=float(segment.end),
+                    text=segment.text,
+                )
+            )
+
+        db.commit()
+
+    try:
+        from app.ai_runtime.vectorstore import schedule_meeting_index_upsert
+
+        schedule_meeting_index_upsert(meeting_id)
+    except Exception:
+        # Vector indexing should never block the primary transcription flow.
+        pass
+
+
+def save_partial_transcript_result(
+    meeting_id: int,
+    transcript: TranscriptResponse,
+    status_value: str = "transcribing",
+) -> None:
     with _get_session() as db:
         meeting = db.execute(select(Meeting).where(Meeting.id == meeting_id)).scalar_one_or_none()
         if meeting is None:
@@ -310,7 +418,7 @@ def save_transcript_result(meeting_id: int, transcript: TranscriptResponse, stat
 def get_meeting_transcript_text(meeting_id: int, current_user: UserProfile) -> str:
     with _get_session() as db:
         meeting = _get_owned_meeting(db, meeting_id, current_user.id)
-        if not meeting.transcript_text:
+        if meeting.status not in {"transcribed", "summarized"} or not meeting.transcript_text:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="当前会议尚未完成转录")
         return meeting.transcript_text
 
@@ -334,6 +442,73 @@ def save_meeting_summary(meeting_id: int, summary: MeetingSummaryResponse) -> No
         meeting.status = "summarized"
         meeting.error_message = ""
         db.commit()
+
+
+def _delete_meeting_related_rows(db, meeting_id: int) -> None:
+    db.execute(delete(MeetingQARecord).where(MeetingQARecord.meeting_id == meeting_id))
+    db.execute(delete(MeetingSummaryEmailDelivery).where(MeetingSummaryEmailDelivery.meeting_id == meeting_id))
+    db.execute(delete(MeetingSummary).where(MeetingSummary.meeting_id == meeting_id))
+    db.execute(delete(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting_id))
+
+
+def _delete_meeting_index(meeting_id: int) -> None:
+    try:
+        from app.ai_runtime.vectorstore import delete_meeting_index
+
+        delete_meeting_index(meeting_id)
+    except Exception:
+        pass
+
+
+def _delete_meeting_audio_file(audio_path: str) -> None:
+    if not audio_path:
+        return
+    try:
+        path = Path(audio_path)
+        if path.exists():
+            path.unlink()
+    except OSError:
+        pass
+
+
+def delete_meeting_record(meeting_id: int, current_user: UserProfile) -> dict[str, int | str]:
+    from app.services.transcription_service import stop_transcription_jobs_for_meeting
+
+    stop_transcription_jobs_for_meeting(meeting_id)
+
+    with _get_session() as db:
+        meeting = _get_owned_meeting(db, meeting_id, current_user.id)
+        audio_path = str(meeting.audio_path or "")
+        _delete_meeting_related_rows(db, meeting_id)
+        db.execute(delete(Meeting).where(Meeting.id == meeting_id))
+        db.commit()
+
+    _delete_meeting_index(meeting_id)
+    _delete_meeting_audio_file(audio_path)
+    return {"message": "会议记录已删除", "deleted_id": meeting_id}
+
+
+def delete_all_meeting_records(current_user: UserProfile) -> dict[str, int | str]:
+    with _get_session() as db:
+        meetings = db.execute(select(Meeting).where(Meeting.user_id == current_user.id)).scalars().all()
+        meeting_ids = [int(meeting.id) for meeting in meetings]
+        audio_paths = [str(meeting.audio_path or "") for meeting in meetings]
+
+        for meeting_id in meeting_ids:
+            _delete_meeting_related_rows(db, meeting_id)
+        db.execute(delete(Meeting).where(Meeting.user_id == current_user.id))
+        db.commit()
+
+    if meeting_ids:
+        from app.services.transcription_service import stop_transcription_jobs_for_meeting
+
+        for meeting_id in meeting_ids:
+            stop_transcription_jobs_for_meeting(meeting_id)
+            _delete_meeting_index(meeting_id)
+        for audio_path in audio_paths:
+            _delete_meeting_audio_file(audio_path)
+
+    return {"message": "历史会议已清空", "deleted_count": len(meeting_ids)}
 
 
 def require_user_from_authorization(authorization: str | None) -> UserProfile:

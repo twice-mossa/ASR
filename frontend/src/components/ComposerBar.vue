@@ -24,6 +24,10 @@ defineProps({
     type: Boolean,
     required: true,
   },
+  canStopTranscription: {
+    type: Boolean,
+    required: true,
+  },
   canDownloadNotes: {
     type: Boolean,
     required: true,
@@ -34,7 +38,7 @@ defineProps({
   },
 });
 
-const emit = defineEmits(["update:modelValue", "submit", "upload", "transcribe", "summary", "download"]);
+const emit = defineEmits(["update:modelValue", "submit", "upload", "transcribe", "stop-transcribe", "summary", "download"]);
 
 function handleKeydown(event) {
   if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
@@ -51,7 +55,15 @@ function handleKeydown(event) {
           {{ workspace.fileName ? "更换音频" : "上传音频" }}
         </button>
         <button class="toolbar-button" :disabled="!workspace.fileName || workLoading.transcribe" @click="emit('transcribe')">
-          {{ workLoading.transcribe ? "正在转录..." : "开始转录" }}
+          {{ workspace.transcriptionStatus === "stopped" ? "重新转录" : workLoading.transcribe ? "正在转录..." : "开始转录" }}
+        </button>
+        <button
+          v-if="canStopTranscription"
+          class="toolbar-button toolbar-button--danger"
+          :disabled="workspace.transcriptionStatus === 'stopping' || workLoading.stopTranscribe"
+          @click="emit('stop-transcribe')"
+        >
+          {{ workspace.transcriptionStatus === "stopping" || workLoading.stopTranscribe ? "正在停止..." : "停止转录" }}
         </button>
         <button class="toolbar-button" :disabled="!canGenerateSummary || workLoading.summary" @click="emit('summary')">
           {{ workLoading.summary ? "正在生成..." : "生成摘要" }}
@@ -114,6 +126,12 @@ function handleKeydown(event) {
 .toolbar-button:disabled {
   opacity: 0.48;
   cursor: not-allowed;
+}
+
+.toolbar-button--danger {
+  border-color: rgba(185, 28, 28, 0.18);
+  background: rgba(254, 242, 242, 0.9);
+  color: #b91c1c;
 }
 
 .toolbar-tip {

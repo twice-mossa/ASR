@@ -20,7 +20,7 @@ Base = declarative_base()
 
 
 def init_database() -> None:
-    from app.models import Meeting, MeetingQARecord, MeetingSummary, TranscriptSegment, User
+    from app.models import Meeting, MeetingQARecord, MeetingSummary, MeetingSummaryEmailDelivery, TranscriptSegment, User
 
     Path(settings.upload_dir).mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(bind=engine)

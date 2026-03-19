@@ -1,6 +1,16 @@
 import { computed, nextTick, reactive, ref } from "vue";
 
-import { askMeetingQuestion, getMeetingDetail, getTranscriptionJob, startMeetingTranscriptionJob, summarizeMeeting } from "../api/meeting";
+import {
+  askMeetingQuestion,
+  clearMeetings,
+  deleteMeeting,
+  getMeetingDetail,
+  getTranscriptionJob,
+  sendMeetingSummaryEmail,
+  startMeetingTranscriptionJob,
+  stopTranscriptionJob,
+  summarizeMeeting,
+} from "../api/meeting";
 import { buildNotesMarkdown, slugifyFilename } from "../utils/workspace";
 
 export function useMeetingWorkflow({
@@ -13,33 +23,45 @@ export function useMeetingWorkflow({
   pushMessage,
   upsertMessage,
   applyMeetingDetail,
+  findMessageId,
   hydrateMeetings,
 }) {
   const activeTranscriptionJobId = ref("");
   const processingMessageId = ref("");
   const summaryMessageId = ref("");
+  const transcriptMessageId = ref("");
   const composerText = ref("");
   const workLoading = reactive({
     transcribe: false,
+    stopTranscribe: false,
     summary: false,
     ask: false,
+    email: false,
+    deleteHistory: false,
   });
 
   let uploadRequestHandler = async () => {};
+  const canUseTranscript = computed(() => ["transcribed", "summarized"].includes(workspace.meetingStatus));
 
-  const canGenerateSummary = computed(
-    () => Boolean(workspace.meetingId && workspace.transcript?.text) && !workLoading.transcribe,
-  );
+  const canGenerateSummary = computed(() => Boolean(workspace.meetingId && canUseTranscript.value) && !workLoading.transcribe);
   const canAskQuestions = computed(
-    () => Boolean(workspace.meetingId && workspace.transcript?.text) && !workLoading.transcribe && !workLoading.ask,
+    () => Boolean(workspace.meetingId && canUseTranscript.value) && !workLoading.transcribe && !workLoading.ask,
   );
   const canDownloadNotes = computed(() => Boolean(workspace.summary?.summary));
+  const canStopTranscription = computed(() =>
+    Boolean(workspace.transcriptionJob?.job_id) &&
+    ["queued", "processing", "stopping"].includes(workspace.transcriptionStatus),
+  );
   const statusLabel = computed(() => {
     if (!isAuthenticated.value) {
       return "访客模式";
     }
 
-    if (workLoading.transcribe || workspace.transcriptionStatus === "transcribing") {
+    if (workspace.transcriptionStatus === "stopping" || workLoading.stopTranscribe) {
+      return "正在停止";
+    }
+
+    if (workLoading.transcribe || ["transcribing", "processing", "queued"].includes(workspace.transcriptionStatus)) {
       return "正在转录";
     }
 
@@ -49,6 +71,10 @@ export function useMeetingWorkflow({
 
     if (workLoading.ask) {
       return "正在回答问题";
+    }
+
+    if (workLoading.email) {
+      return "正在发送邮件";
     }
 
     if (workspace.transcriptionStatus === "summarized") {
@@ -61,6 +87,10 @@ export function useMeetingWorkflow({
 
     if (workspace.transcriptionStatus === "failed") {
       return "处理失败";
+    }
+
+    if (workspace.transcriptionStatus === "stopped" || workspace.meetingStatus === "stopped") {
+      return "已停止";
     }
 
     if (workspace.meetingId) {
@@ -78,7 +108,11 @@ export function useMeetingWorkflow({
       return "上传音频后，系统会先创建可持久化的会议记录。";
     }
 
-    if (!workspace.transcript?.text) {
+    if (["queued", "processing", "transcribing", "stopping"].includes(workspace.transcriptionStatus)) {
+      return "转录进行中，系统会逐段刷新文本；完整结束后再开放摘要和问答。";
+    }
+
+    if (!canUseTranscript.value) {
       return "先开始转录，随后即可围绕当前会议继续提问。";
     }
 
@@ -94,11 +128,15 @@ export function useMeetingWorkflow({
         ? "摘要已生成，可继续追问会议细节"
         : workspace.transcriptionStatus === "transcribed"
           ? "转录已完成，可继续追问或生成摘要"
-          : workspace.transcriptionStatus === "transcribing"
-            ? "正在处理中，刷新页面后仍可继续查看"
-            : workspace.transcriptionStatus === "failed"
-              ? "本次处理失败，可重新发起转录"
-              : "会议记录已创建，等待开始转录";
+          : workspace.transcriptionStatus === "stopping"
+            ? "正在停止转录，当前结果会保留"
+            : ["transcribing", "processing", "queued"].includes(workspace.transcriptionStatus)
+              ? "正在处理中，转录内容会逐段刷新"
+              : workspace.transcriptionStatus === "stopped"
+                ? "转录已停止，可重新发起转录"
+                : workspace.transcriptionStatus === "failed"
+                  ? "本次处理失败，可重新发起转录"
+                  : "会议记录已创建，等待开始转录";
 
     return `${workspace.fileName} · ${workspace.durationLabel} · ${stateText}`;
   });
@@ -111,10 +149,14 @@ export function useMeetingWorkflow({
     activeTranscriptionJobId.value = "";
     processingMessageId.value = "";
     summaryMessageId.value = "";
+    transcriptMessageId.value = "";
     composerText.value = "";
     workLoading.transcribe = false;
+    workLoading.stopTranscribe = false;
     workLoading.summary = false;
     workLoading.ask = false;
+    workLoading.email = false;
+    workLoading.deleteHistory = false;
   }
 
   async function refreshCurrentMeeting() {
@@ -148,6 +190,16 @@ export function useMeetingWorkflow({
       return;
     }
 
+    if (action.type === "stop-transcribe") {
+      await handleStopTranscribe();
+      return;
+    }
+
+    if (action.type === "send-summary-email") {
+      await handleSendSummaryEmail();
+      return;
+    }
+
     if (action.type === "ask") {
       await submitPrompt();
       return;
@@ -156,6 +208,16 @@ export function useMeetingWorkflow({
     if (action.type === "seek-audio") {
       workspace.audioSeekTo = Number(action.seconds) || 0;
       workspace.audioSeekNonce += 1;
+      return;
+    }
+
+    if (action.type === "delete-meeting") {
+      await handleDeleteMeeting(action.meetingId);
+      return;
+    }
+
+    if (action.type === "clear-meetings") {
+      await handleClearMeetings();
     }
   }
 
@@ -164,43 +226,94 @@ export function useMeetingWorkflow({
     workspace.completedChunks = status.completed_chunks || 0;
     workspace.totalChunks = status.total_chunks || 1;
     workspace.language = status.language || workspace.language || "zh";
+    workspace.transcriptionJob = {
+      ...status,
+      segments: status.segments || [],
+    };
     workspace.transcript = {
       filename: status.filename || workspace.fileName,
       language: status.language || "zh",
       text: status.text || "",
       segments: status.segments || [],
     };
+    if (status.status === "completed") {
+      workspace.meetingStatus = "transcribed";
+    } else if (status.status === "stopped") {
+      workspace.meetingStatus = "stopped";
+    } else if (status.status === "failed") {
+      workspace.meetingStatus = "failed";
+    } else {
+      workspace.meetingStatus = "transcribing";
+    }
     workspace.error = status.error || "";
+  }
+
+  function upsertTranscriptPreview(status) {
+    if (!status.text && !(status.segments || []).length) {
+      return;
+    }
+
+    const patch = {
+      transcript: {
+        filename: status.filename || workspace.fileName,
+        language: status.language || "zh",
+        text: status.text || "",
+        segments: status.segments || [],
+      },
+    };
+
+    if (!transcriptMessageId.value) {
+      transcriptMessageId.value = pushMessage("assistant", "transcript_result", "", patch);
+      return;
+    }
+
+    upsertMessage(transcriptMessageId.value, patch);
   }
 
   async function pollTranscriptionJob(jobId) {
     while (activeTranscriptionJobId.value === jobId) {
       const status = await getTranscriptionJob(jobId);
       applyTranscriptionStatus(status);
+      upsertTranscriptPreview(status);
 
       if (processingMessageId.value) {
         const processingText =
           status.status === "completed"
             ? "转录完成，结果已经保存到当前会议。"
+            : status.status === "stopped"
+              ? "转录已停止，已保留当前识别出的内容。"
+            : status.status === "stopping"
+              ? "正在停止转录，当前已识别内容会保留。"
             : status.total_chunks > 1
-              ? `正在按分段处理音频，已完成 ${status.completed_chunks || 0} / ${status.total_chunks || 1} 段。`
-              : "正在处理音频内容，长音频可能需要几分钟。";
+              ? `正在按分段处理音频，已完成 ${status.completed_chunks || 0} / ${status.total_chunks || 1} 段，已识别内容会立即显示。`
+              : "正在处理音频内容，已识别内容会立即显示。";
         upsertMessage(processingMessageId.value, {
           text: processingText,
           progress: {
             completed: status.completed_chunks || 0,
             total: status.total_chunks || 1,
           },
+          progressMeta: {
+            status: status.status || "processing",
+          },
         });
       }
 
       if (status.status === "completed") {
         workspace.transcriptionStatus = "transcribed";
+        workspace.meetingStatus = "transcribed";
+        return;
+      }
+
+      if (status.status === "stopped") {
+        workspace.transcriptionStatus = "stopped";
+        workspace.meetingStatus = "stopped";
         return;
       }
 
       if (status.status === "failed") {
         workspace.transcriptionStatus = "failed";
+        workspace.meetingStatus = "failed";
         throw new Error(status.error || "转写失败");
       }
 
@@ -222,15 +335,19 @@ export function useMeetingWorkflow({
     workspace.summary = null;
     workspace.summaryGeneratedAt = "";
     workspace.transcriptionStatus = "transcribing";
+    workspace.meetingStatus = "transcribing";
     workspace.completedChunks = 0;
     workspace.totalChunks = 1;
     workspace.error = "";
+    workspace.transcriptionJob = null;
+    transcriptMessageId.value = "";
     processingMessageId.value = pushMessage(
       "system",
       "system_status",
-      "已接收转录请求，结果会在当前会议记录里持续刷新并保存。",
+      "已接收转录请求，结果会在当前会议记录里逐段刷新并保存。",
       {
         progress: { completed: 0, total: 1 },
+        progressMeta: { status: "queued" },
       },
     );
 
@@ -239,11 +356,17 @@ export function useMeetingWorkflow({
       activeTranscriptionJobId.value = job.job_id;
       await pollTranscriptionJob(job.job_id);
       await refreshCurrentMeeting();
-      pushMessage("assistant", "assistant_answer", "转录已完成。你现在可以查看全文、浏览时间分段，或者直接生成会议摘要。");
-      pushMessage("assistant", "transcript_result", "", {
-        transcript: workspace.transcript,
-      });
-      notify("音频转录完成", "success", "转录完成");
+      if (workspace.meetingStatus === "transcribed") {
+        pushMessage("assistant", "assistant_answer", "转录已完成。你现在可以查看全文、浏览时间分段，或者直接生成会议摘要。");
+        if (!transcriptMessageId.value) {
+          transcriptMessageId.value = pushMessage("assistant", "transcript_result", "", {
+            transcript: workspace.transcript,
+          });
+        }
+        notify("音频转录完成", "success", "转录完成");
+      } else if (workspace.meetingStatus === "stopped") {
+        notify("转录已停止，已保留当前已识别内容", "warning", "已停止");
+      }
     } catch (error) {
       if (processingMessageId.value) {
         upsertMessage(processingMessageId.value, {
@@ -254,8 +377,110 @@ export function useMeetingWorkflow({
       notify(resolveError(error, "转录失败。请稍后再试。"), "error", "转录失败");
     } finally {
       workLoading.transcribe = false;
+      workLoading.stopTranscribe = false;
+      activeTranscriptionJobId.value = "";
       processingMessageId.value = "";
       await hydrateMeetings(session.token, workspace.meetingId);
+    }
+  }
+
+  async function handleStopTranscribe() {
+    if (!withAuth({ type: "stop-transcribe" })) {
+      return;
+    }
+
+    if (!workspace.transcriptionJob?.job_id || !canStopTranscription.value) {
+      return;
+    }
+
+    workLoading.stopTranscribe = true;
+    workspace.transcriptionStatus = "stopping";
+
+    try {
+      const status = await stopTranscriptionJob(session.token, workspace.transcriptionJob.job_id);
+      applyTranscriptionStatus(status);
+    } catch (error) {
+      notify(resolveError(error, "停止转录失败，请稍后重试。"), "error", "停止失败");
+      workLoading.stopTranscribe = false;
+    }
+  }
+
+  async function handleDeleteMeeting(meetingId = workspace.meetingId) {
+    if (!withAuth({ type: "delete-meeting" })) {
+      return;
+    }
+
+    if (!meetingId) {
+      return;
+    }
+
+    const confirmed = window.confirm("删除后，这场会议的音频、转录、摘要和问答记录都会移除，确认删除吗？");
+    if (!confirmed) {
+      return;
+    }
+
+    workLoading.deleteHistory = true;
+    try {
+      await deleteMeeting(session.token, meetingId);
+      if (workspace.meetingId === meetingId) {
+        resetTransientState();
+      }
+      await hydrateMeetings(session.token);
+      notify("会议记录已删除", "success", "删除成功");
+    } catch (error) {
+      notify(resolveError(error, "删除会议失败，请稍后重试。"), "error", "删除失败");
+    } finally {
+      workLoading.deleteHistory = false;
+    }
+  }
+
+  async function handleClearMeetings() {
+    if (!withAuth({ type: "clear-meetings" })) {
+      return;
+    }
+
+    const confirmed = window.confirm("这会清空当前账号的全部历史会议记录，确认继续吗？");
+    if (!confirmed) {
+      return;
+    }
+
+    workLoading.deleteHistory = true;
+    try {
+      await clearMeetings(session.token);
+      resetTransientState();
+      await hydrateMeetings(session.token);
+      notify("历史会议已清空", "success", "清空成功");
+    } catch (error) {
+      notify(resolveError(error, "清空历史会议失败，请稍后重试。"), "error", "清空失败");
+    } finally {
+      workLoading.deleteHistory = false;
+    }
+  }
+
+  async function resumeActiveTranscriptionIfNeeded() {
+    const jobId = workspace.transcriptionJob?.job_id;
+    if (!jobId || activeTranscriptionJobId.value === jobId) {
+      return;
+    }
+
+    if (!["queued", "processing", "stopping"].includes(workspace.transcriptionStatus)) {
+      return;
+    }
+
+    processingMessageId.value = findMessageId("system_status");
+    transcriptMessageId.value = findMessageId("transcript_result");
+    activeTranscriptionJobId.value = jobId;
+    workLoading.transcribe = true;
+
+    try {
+      await pollTranscriptionJob(jobId);
+      await refreshCurrentMeeting();
+    } catch (error) {
+      notify(resolveError(error, "转录状态同步失败，请稍后重试。"), "error", "转录同步失败");
+    } finally {
+      workLoading.transcribe = false;
+      workLoading.stopTranscribe = false;
+      activeTranscriptionJobId.value = "";
     }
   }
 
@@ -264,7 +489,7 @@ export function useMeetingWorkflow({
       return;
     }
 
-    if (!workspace.meetingId || !workspace.transcript?.text) {
+    if (!workspace.meetingId || !canUseTranscript.value) {
       notify("请先完成音频转录", "warning", "无法生成摘要");
       return;
     }
@@ -279,6 +504,7 @@ export function useMeetingWorkflow({
       });
       workspace.summaryGeneratedAt = new Date().toISOString();
       workspace.transcriptionStatus = "summarized";
+      workspace.meetingStatus = "summarized";
       if (summaryMessageId.value) {
         upsertMessage(summaryMessageId.value, {
           text: "结构化分析已完成，并已保存到当前会议记录。",
@@ -347,6 +573,35 @@ export function useMeetingWorkflow({
     notify("会议纪要已导出为 Markdown 文档", "success", "导出成功");
   }
 
+  async function handleSendSummaryEmail() {
+    if (!withAuth({ type: "send-summary-email" })) {
+      return;
+    }
+
+    if (!workspace.meetingId || !workspace.summary?.summary) {
+      notify("请先生成摘要，再发送会议纪要。", "warning", "暂无可发送内容");
+      return;
+    }
+
+    if (!workspace.summaryEmail?.enabled) {
+      notify("当前环境未启用邮件发送。", "warning", "无法发送");
+      return;
+    }
+
+    workLoading.email = true;
+
+    try {
+      const result = await sendMeetingSummaryEmail(session.token, workspace.meetingId);
+      await refreshCurrentMeeting();
+      notify(`会议纪要已发送到 ${result.recipient_email}`, "success", "发送成功");
+    } catch (error) {
+      await refreshCurrentMeeting();
+      notify(resolveError(error, "邮件发送失败，请稍后重试。"), "error", "发送失败");
+    } finally {
+      workLoading.email = false;
+    }
+  }
+
   async function submitPrompt() {
     const text = composerText.value.trim();
     if (!text) {
@@ -365,7 +620,7 @@ export function useMeetingWorkflow({
       return;
     }
 
-    if (!workspace.transcript?.text) {
+    if (!canUseTranscript.value) {
       pushMessage("assistant", "assistant_answer", "当前会议还没有可用转录。先开始转录，随后我就能围绕这段内容继续回答。");
       return;
     }
@@ -417,6 +672,16 @@ export function useMeetingWorkflow({
       return;
     }
 
+    if (action === "stop-transcribe") {
+      handleStopTranscribe();
+      return;
+    }
+
+    if (action === "send-summary-email") {
+      handleSendSummaryEmail();
+      return;
+    }
+
     if (action === "download-notes") {
       downloadNotes();
       return;
@@ -431,6 +696,16 @@ export function useMeetingWorkflow({
     if (action === "prompt-risk") {
       composerText.value = "请结合会议内容，概括当前最关键的风险和建议的下一步。";
       submitPrompt();
+      return;
+    }
+
+    if (action === "delete-current-meeting") {
+      handleDeleteMeeting();
+      return;
+    }
+
+    if (action === "clear-meetings") {
+      handleClearMeetings();
     }
   }
 
@@ -438,14 +713,20 @@ export function useMeetingWorkflow({
     canAskQuestions,
     canDownloadNotes,
     canGenerateSummary,
+    canStopTranscription,
     composerPlaceholder,
     composerText,
     downloadNotes,
+    handleClearMeetings,
+    handleDeleteMeeting,
     handlePendingAction,
+    handleSendSummaryEmail,
     handleSuggestion,
     handleSummary,
+    handleStopTranscribe,
     handleTranscribe,
     headerDescription,
+    resumeActiveTranscriptionIfNeeded,
     resetTransientState,
     setUploadRequestHandler,
     statusLabel,

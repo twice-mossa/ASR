@@ -95,8 +95,15 @@ const welcomeCards = [
           <p v-if="message.text" class="message-text">{{ message.text }}</p>
 
           <div v-if="message.kind === 'system_status' && message.progress" class="progress-meta">
-            <span>进度</span>
+            <span>{{ message.progressMeta?.status === "stopping" ? "正在停止" : "进度" }}</span>
             <strong>{{ message.progress.completed }} / {{ message.progress.total }}</strong>
+            <div class="progress-bar">
+              <span
+                :style="{
+                  width: `${Math.min(100, Math.max(0, ((message.progress.completed || 0) / Math.max(1, message.progress.total || 1)) * 100))}%`,
+                }"
+              />
+            </div>
           </div>
 
           <TranscriptCard v-if="message.kind === 'transcript_result'" :transcript="message.transcript" />
@@ -104,7 +111,10 @@ const welcomeCards = [
             v-if="message.kind === 'summary_result'"
             :summary="message.summary"
             :can-download-notes="canDownloadNotes"
+            :summary-email="workspace.summaryEmail"
+            :email-sending="workLoading.email"
             @ask="emit('action', 'prompt-risk')"
+            @send-email="emit('action', 'send-summary-email')"
             @download="emit('action', 'download-notes')"
           />
           <KeywordCard v-if="message.kind === 'keyword_result'" :keywords="message.keywords" />
@@ -312,6 +322,21 @@ h3 {
 
 .progress-meta strong {
   color: var(--text-strong);
+}
+
+.progress-bar {
+  width: min(220px, 100%);
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.16);
+}
+
+.progress-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #1f4fd1, #60a5fa);
 }
 
 .follow-up-button {

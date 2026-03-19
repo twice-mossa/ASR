@@ -20,7 +20,7 @@ const emit = defineEmits(["seek"]);
     <div class="answer-card__header">
       <div>
         <p class="label">Answer</p>
-        <h4>会议问答</h4>
+        <h4>直接回答</h4>
       </div>
       <span>{{ citations.length ? `${citations.length} 条引用` : "无引用" }}</span>
     </div>

@@ -67,6 +67,19 @@ class MeetingSummary(Base):
     )
 
 
+class MeetingSummaryEmailDelivery(Base):
+    __tablename__ = "meeting_summary_email_deliveries"
+
+    id = Column(Integer, primary_key=True, index=True)
+    meeting_id = Column(Integer, ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False, index=True)
+    recipient_email = Column(String(255), nullable=False)
+    delivery_type = Column(String(16), nullable=False, default="manual")
+    status = Column(String(16), nullable=False, default="failed")
+    subject = Column(String(255), nullable=False, default="")
+    error_message = Column(Text, nullable=False, default="")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
 class MeetingQARecord(Base):
     __tablename__ = "meeting_qa_records"
 
