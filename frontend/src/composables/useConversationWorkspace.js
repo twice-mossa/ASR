@@ -1,7 +1,16 @@
 import { computed, reactive, ref } from "vue";
 
 import { getMeetingDetail, listMeetings } from "../api/meeting";
-import { buildMessage, cloneMessages, cloneSummary, cloneTranscript, defaultWorkspaceState, formatConversationTime } from "../utils/workspace";
+import {
+  buildMessage,
+  cloneMessages,
+  cloneSummary,
+  cloneSummaryEmail,
+  cloneTranscriptionJob,
+  cloneTranscript,
+  defaultWorkspaceState,
+  formatConversationTime,
+} from "../utils/workspace";
 
 function normalizeAudioUrl(audioUrl) {
   if (!audioUrl) {
@@ -74,7 +83,13 @@ export function useConversationWorkspace({ notify, resolveError }) {
   function upsertSidebarConversation(meetingDetail) {
     const preview =
       meetingDetail.summary?.summary ||
-      (meetingDetail.transcript?.text
+      ((meetingDetail.transcription_job?.status || meetingDetail.status) === "stopping"
+        ? "正在停止转录，当前结果会保留。"
+        : meetingDetail.status === "transcribing"
+        ? "正在转录，已识别内容会持续刷新。"
+        : meetingDetail.status === "stopped"
+        ? "已停止转录，保留了当前已识别内容。"
+        : meetingDetail.transcript?.text
         ? meetingDetail.status === "summarized"
           ? "已生成摘要，可继续追问会议细节。"
           : "已完成转录，可继续追问会议内容。"
@@ -118,15 +133,42 @@ export function useConversationWorkspace({ notify, resolveError }) {
 
     if (meetingDetail.status === "transcribing") {
       nextMessages.push(
-        buildMessage("system", "system_status", "正在处理音频内容，刷新页面后仍可继续查看当前进度。"),
+        buildMessage(
+          "system",
+          "system_status",
+          meetingDetail.transcription_job?.status === "stopping"
+            ? "正在停止转录，当前已识别内容会保留。"
+            : "正在处理音频内容，转录结果会逐段刷新并自动保存。",
+          {
+          progress: {
+            completed: meetingDetail.transcription_job?.completed_chunks || 0,
+            total: meetingDetail.transcription_job?.total_chunks || 1,
+          },
+          progressMeta: {
+            status: meetingDetail.transcription_job?.status || "processing",
+          },
+          },
+        ),
+      );
+    }
+
+    if (meetingDetail.status === "stopped") {
+      nextMessages.push(
+        buildMessage("system", "system_status", "转录已停止，本次保留了当前已识别内容。"),
       );
     }
 
     if (meetingDetail.transcript?.text) {
+      if (meetingDetail.status === "transcribed" || meetingDetail.status === "summarized") {
+        nextMessages.push(
+          buildMessage("assistant", "assistant_answer", "转录已完成。你现在可以查看全文、浏览时间分段，或者直接生成会议摘要。"),
+        );
+      }
       nextMessages.push(
-        buildMessage("assistant", "assistant_answer", "转录已完成。你现在可以查看全文、浏览时间分段，或者直接生成会议摘要。"),
+        buildMessage("assistant", "transcript_result", "", {
+          transcript: meetingDetail.transcript,
+        }),
       );
-      nextMessages.push(buildMessage("assistant", "transcript_result", "", { transcript: meetingDetail.transcript }));
     }
 
     if (meetingDetail.summary) {
@@ -148,6 +190,10 @@ export function useConversationWorkspace({ notify, resolveError }) {
       );
     }
 
+    if (["processing", "pending"].includes(meetingDetail.knowledge_status || "")) {
+      nextMessages.push(buildMessage("system", "system_status", "正在整理会议主题和证据块，后续追问会更快更稳。"));
+    }
+
     if (meetingDetail.error) {
       nextMessages.push(buildMessage("system", "system_status", meetingDetail.error, { tone: "error" }));
     }
@@ -158,6 +204,9 @@ export function useConversationWorkspace({ notify, resolveError }) {
         buildMessage("assistant", "qa_answer", "", {
           answer: qaRecord.answer,
           citations: qaRecord.citations || [],
+          answerType: qaRecord.answer_type || "fact",
+          topicLabels: qaRecord.topic_labels || [],
+          evidenceBlocks: qaRecord.evidence_blocks || [],
           reasoningTitle: qaRecord.reasoning_summary ? "查看回答依据" : "",
           reasoningItems: qaRecord.reasoning_summary ? [qaRecord.reasoning_summary] : [],
           createdAt: Date.parse(qaRecord.created_at) || Date.now(),
@@ -171,19 +220,23 @@ export function useConversationWorkspace({ notify, resolveError }) {
   function applyMeetingDetail(meetingDetail, localFile = null) {
     revokeAudioUrl();
     workspace.meetingId = meetingDetail.id;
+    workspace.meetingStatus = meetingDetail.status || "draft";
     workspace.file = localFile;
     workspace.fileName = meetingDetail.filename || "";
     workspace.persistedAudioUrl = normalizeAudioUrl(meetingDetail.audio_url);
     workspace.audioUrl = localFile ? URL.createObjectURL(localFile) : normalizeAudioUrl(meetingDetail.audio_url);
     workspace.transcript = cloneTranscript(meetingDetail.transcript);
+    workspace.transcriptionJob = cloneTranscriptionJob(meetingDetail.transcription_job);
     workspace.summary = cloneSummary(meetingDetail.summary);
     workspace.isDragging = false;
-    workspace.transcriptionStatus = meetingDetail.status || "draft";
-    workspace.completedChunks = 0;
-    workspace.totalChunks = 1;
+    workspace.transcriptionStatus = meetingDetail.transcription_job?.status || meetingDetail.status || "draft";
+    workspace.completedChunks = meetingDetail.transcription_job?.completed_chunks || 0;
+    workspace.totalChunks = meetingDetail.transcription_job?.total_chunks || 1;
     workspace.durationLabel = meetingDetail.duration_label || "--:--";
     workspace.language = meetingDetail.language || "zh";
     workspace.summaryGeneratedAt = meetingDetail.updated_at || "";
+    workspace.summaryEmail = cloneSummaryEmail(meetingDetail.summary_email);
+    workspace.knowledgeStatus = meetingDetail.knowledge_status || "idle";
     workspace.error = meetingDetail.error || "";
     workspace.audioSeekTo = null;
     workspace.audioSeekNonce = 0;
@@ -235,8 +288,11 @@ export function useConversationWorkspace({ notify, resolveError }) {
 
   return {
     applyMeetingDetail,
-    conversations,
     currentConversationId,
+    conversations,
+    findMessageId(kind) {
+      return messages.value.find((message) => message.kind === kind)?.id || "";
+    },
     hydrateMeetings,
     messages,
     pushMessage,

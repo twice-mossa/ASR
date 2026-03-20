@@ -30,6 +30,8 @@ class TranscriptJobStatusResponse(BaseModel):
     segments: list[TranscriptSegment] = Field(default_factory=list)
     total_chunks: int = 1
     completed_chunks: int = 0
+    is_stoppable: bool = False
+    partial_available: bool = False
     error: str | None = None
 
 
@@ -44,11 +46,35 @@ class MeetingSummaryResponse(BaseModel):
     todos: list[str]
 
 
+class MeetingSummaryEmailStatusResponse(BaseModel):
+    enabled: bool
+    recipient_email: str = ""
+    last_status: str = "idle"
+    last_delivery_type: str | None = None
+    last_sent_at: str | None = None
+    last_error: str | None = None
+
+
+class MeetingSummaryEmailSendResponse(BaseModel):
+    message: str
+    recipient_email: str
+    status: str
+    sent_at: str | None = None
+
+
 class MeetingCitation(BaseModel):
     text: str
     start: float
     end: float
     segment_id: int | None = None
+
+
+class MeetingEvidenceBlock(BaseModel):
+    title: str
+    start: float
+    end: float
+    summary: str
+    citations: list[MeetingCitation] = Field(default_factory=list)
 
 
 class MeetingAskRequest(BaseModel):
@@ -59,6 +85,9 @@ class MeetingAskResponse(BaseModel):
     answer: str
     citations: list[MeetingCitation] = Field(default_factory=list)
     reasoning_summary: str | None = None
+    answer_type: str | None = None
+    topic_labels: list[str] = Field(default_factory=list)
+    evidence_blocks: list[MeetingEvidenceBlock] = Field(default_factory=list)
 
 
 class MeetingQARecordResponse(BaseModel):
@@ -67,6 +96,9 @@ class MeetingQARecordResponse(BaseModel):
     answer: str
     citations: list[MeetingCitation] = Field(default_factory=list)
     reasoning_summary: str | None = None
+    answer_type: str | None = None
+    topic_labels: list[str] = Field(default_factory=list)
+    evidence_blocks: list[MeetingEvidenceBlock] = Field(default_factory=list)
     created_at: str
 
 
@@ -100,5 +132,8 @@ class MeetingDetailResponse(BaseModel):
     updated_at: str
     error: str | None = None
     transcript: TranscriptResponse | None = None
+    transcription_job: TranscriptJobStatusResponse | None = None
     summary: MeetingSummaryResponse | None = None
+    summary_email: MeetingSummaryEmailStatusResponse
     qa_records: list[MeetingQARecordResponse] = Field(default_factory=list)
+    knowledge_status: str = "idle"

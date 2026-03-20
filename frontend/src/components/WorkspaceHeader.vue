@@ -20,6 +20,18 @@ defineProps({
     type: String,
     default: "",
   },
+  progressCompleted: {
+    type: Number,
+    default: 0,
+  },
+  progressTotal: {
+    type: Number,
+    default: 1,
+  },
+  progressStatus: {
+    type: String,
+    default: "idle",
+  },
 });
 
 const emit = defineEmits(["toggle-sidebar", "request-login"]);
@@ -36,6 +48,18 @@ const emit = defineEmits(["toggle-sidebar", "request-login"]);
         <div class="title-row">
           <h2>{{ fileName || "围绕会议音频持续工作" }}</h2>
           <p class="description">{{ description }}</p>
+        </div>
+        <div
+          v-if="['queued', 'processing', 'transcribing', 'stopping'].includes(progressStatus) && progressTotal > 0"
+          class="progress-strip"
+        >
+          <div class="progress-strip__meta">
+            <span>{{ progressStatus === "stopping" ? "正在停止" : "转录进度" }}</span>
+            <strong>{{ progressCompleted }} / {{ progressTotal }}</strong>
+          </div>
+          <div class="progress-strip__bar">
+            <span :style="{ width: `${Math.min(100, Math.max(0, (progressCompleted / progressTotal) * 100))}%` }" />
+          </div>
         </div>
       </div>
     </div>
@@ -119,6 +143,39 @@ h2 {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.progress-strip {
+  margin-top: 8px;
+  display: grid;
+  gap: 5px;
+}
+
+.progress-strip__meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--text-soft);
+  font-size: 0.72rem;
+}
+
+.progress-strip__meta strong {
+  color: var(--text-strong);
+}
+
+.progress-strip__bar {
+  width: min(280px, 100%);
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.18);
+}
+
+.progress-strip__bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #1f4fd1, #60a5fa);
 }
 
 .status-pill,

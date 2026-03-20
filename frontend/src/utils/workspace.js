@@ -63,11 +63,13 @@ export function buildMessage(role, kind, text = "", extra = {}) {
 export function defaultWorkspaceState() {
   return {
     meetingId: null,
+    meetingStatus: "idle",
     file: null,
     fileName: "",
     audioUrl: "",
     persistedAudioUrl: "",
     transcript: null,
+    transcriptionJob: null,
     summary: null,
     isDragging: false,
     transcriptionStatus: "idle",
@@ -76,6 +78,15 @@ export function defaultWorkspaceState() {
     durationLabel: "--:--",
     language: "zh",
     summaryGeneratedAt: "",
+    summaryEmail: {
+      enabled: false,
+      recipient_email: "",
+      last_status: "idle",
+      last_delivery_type: null,
+      last_sent_at: null,
+      last_error: null,
+    },
+    knowledgeStatus: "idle",
     error: "",
     audioSeekTo: null,
     audioSeekNonce: 0,
@@ -105,15 +116,56 @@ export function cloneSummary(summary) {
   };
 }
 
+export function cloneTranscriptionJob(job) {
+  if (!job) {
+    return null;
+  }
+
+  return {
+    ...job,
+    segments: (job.segments || []).map((segment) => ({ ...segment })),
+  };
+}
+
+export function cloneSummaryEmail(summaryEmail) {
+  if (!summaryEmail) {
+    return {
+      enabled: false,
+      recipient_email: "",
+      last_status: "idle",
+      last_delivery_type: null,
+      last_sent_at: null,
+      last_error: null,
+    };
+  }
+
+  return {
+    enabled: Boolean(summaryEmail.enabled),
+    recipient_email: summaryEmail.recipient_email || "",
+    last_status: summaryEmail.last_status || "idle",
+    last_delivery_type: summaryEmail.last_delivery_type || null,
+    last_sent_at: summaryEmail.last_sent_at || null,
+    last_error: summaryEmail.last_error || null,
+  };
+}
+
 export function cloneMessages(list) {
   return list.map((message) => ({
     ...message,
     progress: message.progress ? { ...message.progress } : undefined,
+    progressMeta: message.progressMeta ? { ...message.progressMeta } : undefined,
     transcript: message.transcript ? cloneTranscript(message.transcript) : undefined,
     keywords: message.keywords ? [...message.keywords] : undefined,
     todos: message.todos ? [...message.todos] : undefined,
     reasoningItems: message.reasoningItems ? [...message.reasoningItems] : undefined,
     citations: message.citations ? message.citations.map((citation) => ({ ...citation })) : undefined,
+    topicLabels: message.topicLabels ? [...message.topicLabels] : undefined,
+    evidenceBlocks: message.evidenceBlocks
+      ? message.evidenceBlocks.map((block) => ({
+          ...block,
+          citations: (block.citations || []).map((citation) => ({ ...citation })),
+        }))
+      : undefined,
     sources: message.sources ? [...message.sources] : undefined,
   }));
 }

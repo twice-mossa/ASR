@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter, File, Form, Header, UploadFile
 
 from app.schemas.auth import AuthResponse, LoginRequest, LogoutResponse, RegisterRequest, UserProfile
@@ -7,6 +9,7 @@ from app.schemas.meeting import (
     MeetingCreateRequest,
     MeetingDetailResponse,
     MeetingListItem,
+    MeetingSummaryEmailSendResponse,
     MeetingSummaryResponse,
     SummaryRequest,
     TranscriptJobCreateResponse,
@@ -14,11 +17,20 @@ from app.schemas.meeting import (
     TranscriptResponse,
 )
 from app.services.auth_service import get_current_user, login_user, logout_user, register_user
-from app.services.meeting_service import create_meeting, get_meeting_detail, list_meetings, require_user_from_authorization
+from app.services.email_service import send_summary_email_for_meeting
+from app.services.meeting_service import (
+    create_meeting,
+    delete_all_meeting_records,
+    delete_meeting_record,
+    get_meeting_detail,
+    list_meetings,
+    require_user_from_authorization,
+)
 from app.services.minimax_service import build_summary, build_summary_for_meeting
 from app.services.qa_service import ask_meeting_question
 from app.services.transcription_service import (
     get_transcription_job,
+    stop_transcription_job,
     start_transcription_job,
     start_transcription_job_for_meeting,
     transcribe_audio,
@@ -76,6 +88,15 @@ async def read_transcription_job(job_id: str) -> TranscriptJobStatusResponse:
     return await get_transcription_job(job_id)
 
 
+@router.post("/transcribe/jobs/{job_id}/stop", response_model=TranscriptJobStatusResponse)
+async def stop_transcription_job_route(
+    job_id: str,
+    authorization: str | None = Header(default=None),
+) -> TranscriptJobStatusResponse:
+    current_user = require_user_from_authorization(authorization)
+    return await stop_transcription_job(job_id, current_user)
+
+
 @router.post("/summary", response_model=MeetingSummaryResponse)
 async def create_summary(
     payload: SummaryRequest,
@@ -112,6 +133,30 @@ def read_meeting_records(authorization: str | None = Header(default=None)) -> li
 def read_meeting_record(meeting_id: int, authorization: str | None = Header(default=None)) -> MeetingDetailResponse:
     current_user = require_user_from_authorization(authorization)
     return get_meeting_detail(meeting_id, current_user)
+
+
+@router.delete("/meetings/{meeting_id}")
+def delete_meeting(
+    meeting_id: int,
+    authorization: str | None = Header(default=None),
+) -> dict[str, int | str]:
+    current_user = require_user_from_authorization(authorization)
+    return delete_meeting_record(meeting_id, current_user)
+
+
+@router.delete("/meetings")
+def delete_all_meetings(authorization: str | None = Header(default=None)) -> dict[str, int | str]:
+    current_user = require_user_from_authorization(authorization)
+    return delete_all_meeting_records(current_user)
+
+
+@router.post("/meetings/{meeting_id}/send-summary-email", response_model=MeetingSummaryEmailSendResponse)
+async def send_meeting_summary_email(
+    meeting_id: int,
+    authorization: str | None = Header(default=None),
+) -> MeetingSummaryEmailSendResponse:
+    current_user = require_user_from_authorization(authorization)
+    return await asyncio.to_thread(send_summary_email_for_meeting, meeting_id, current_user)
 
 
 @router.post("/meetings/{meeting_id}/ask", response_model=MeetingAskResponse)

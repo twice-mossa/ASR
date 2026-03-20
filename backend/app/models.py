@@ -67,6 +67,19 @@ class MeetingSummary(Base):
     )
 
 
+class MeetingSummaryEmailDelivery(Base):
+    __tablename__ = "meeting_summary_email_deliveries"
+
+    id = Column(Integer, primary_key=True, index=True)
+    meeting_id = Column(Integer, ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False, index=True)
+    recipient_email = Column(String(255), nullable=False)
+    delivery_type = Column(String(16), nullable=False, default="manual")
+    status = Column(String(16), nullable=False, default="failed")
+    subject = Column(String(255), nullable=False, default="")
+    error_message = Column(Text, nullable=False, default="")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
 class MeetingQARecord(Base):
     __tablename__ = "meeting_qa_records"
 
@@ -76,4 +89,27 @@ class MeetingQARecord(Base):
     answer = Column(Text, nullable=False, default="")
     citations_json = Column(Text, nullable=False, default="[]")
     reasoning_summary = Column(Text, nullable=False, default="")
+    answer_type = Column(String(32), nullable=False, default="fact")
+    topic_labels_json = Column(Text, nullable=False, default="[]")
+    evidence_blocks_json = Column(Text, nullable=False, default="[]")
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class MeetingKnowledgePack(Base):
+    __tablename__ = "meeting_knowledge_packs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    meeting_id = Column(Integer, ForeignKey("meetings.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    status = Column(String(16), nullable=False, default="pending", index=True)
+    semantic_chunks_json = Column(Text, nullable=False, default="[]")
+    topic_map_json = Column(Text, nullable=False, default="[]")
+    discussion_points_json = Column(Text, nullable=False, default="[]")
+    summary_context_json = Column(Text, nullable=False, default="{}")
+    version = Column(Integer, nullable=False, default=1)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )

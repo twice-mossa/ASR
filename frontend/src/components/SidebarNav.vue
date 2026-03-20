@@ -18,7 +18,14 @@ defineProps({
   },
 });
 
-const emit = defineEmits(["select-conversation", "new-analysis", "request-login", "logout"]);
+const emit = defineEmits([
+  "select-conversation",
+  "delete-conversation",
+  "clear-conversations",
+  "new-analysis",
+  "request-login",
+  "logout",
+]);
 </script>
 
 <template>
@@ -36,21 +43,33 @@ const emit = defineEmits(["select-conversation", "new-analysis", "request-login"
     <section class="history-block">
       <div class="block-header">
         <span>历史会议</span>
-        <small>{{ conversations.length }}</small>
+        <div class="block-header__actions">
+          <small>{{ conversations.length }}</small>
+          <button v-if="authenticated && conversations.length" class="history-clear" @click="emit('clear-conversations')">清空</button>
+        </div>
       </div>
 
       <div class="history-list">
-        <button
+        <article
           v-for="item in conversations"
           :key="item.id"
           class="history-item"
           :class="{ 'history-item--active': activeConversationId === item.id }"
-          @click="emit('select-conversation', item.id)"
         >
-          <strong>{{ item.title }}</strong>
-          <span>{{ item.preview }}</span>
-          <small>{{ item.updatedLabel }}</small>
-        </button>
+          <button class="history-item__main" @click="emit('select-conversation', item.id)">
+            <strong>{{ item.title }}</strong>
+            <span>{{ item.preview }}</span>
+            <small>{{ item.updatedLabel }}</small>
+          </button>
+          <button
+            v-if="authenticated"
+            class="history-item__delete"
+            type="button"
+            @click="emit('delete-conversation', item.id)"
+          >
+            删除
+          </button>
+        </article>
       </div>
     </section>
 
@@ -151,6 +170,20 @@ h1 {
   text-transform: uppercase;
 }
 
+.block-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.history-clear {
+  border: 0;
+  background: transparent;
+  color: #b91c1c;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
 .history-list {
   display: grid;
   gap: 4px;
@@ -158,33 +191,59 @@ h1 {
 }
 
 .history-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  transition: background 180ms ease, border-color 180ms ease, transform 180ms ease;
+}
+
+.history-item__main {
   display: grid;
   gap: 4px;
   padding: 10px 11px;
-  border: 1px solid transparent;
+  border: 0;
   border-radius: 12px;
   background: transparent;
   color: var(--text-main);
   cursor: pointer;
   text-align: left;
-  transition: background 180ms ease, border-color 180ms ease, transform 180ms ease;
 }
 
-.history-item strong {
+.history-item__delete {
+  align-self: center;
+  margin-right: 8px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(185, 28, 28, 0.08);
+  color: #b91c1c;
+  font-size: 0.7rem;
+  padding: 4px 8px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 180ms ease, background 180ms ease;
+}
+
+.history-item__main strong {
   color: var(--text-strong);
   font-size: 0.82rem;
   line-height: 1.45;
 }
 
-.history-item span,
-.history-item small,
+.history-item__main span,
+.history-item__main small,
 .account-copy span {
   color: var(--text-soft);
   line-height: 1.52;
   font-size: 0.74rem;
 }
 
-.history-item small {
+.history-item__main small {
   font-size: 0.66rem;
 }
 
@@ -194,7 +253,16 @@ h1 {
   border-color: rgba(148, 163, 184, 0.14);
 }
 
-.history-item span {
+.history-item:hover .history-item__delete,
+.history-item--active .history-item__delete {
+  opacity: 1;
+}
+
+.history-item__delete:hover {
+  background: rgba(185, 28, 28, 0.14);
+}
+
+.history-item__main span {
   display: -webkit-box;
   overflow: hidden;
   -webkit-line-clamp: 2;
