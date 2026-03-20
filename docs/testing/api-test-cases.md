@@ -35,4 +35,28 @@
 - 预期：
   - 返回 `summary`
   - 返回 `keywords`
-  - 返回 `action_items`
+  - 返回 `todos`
+
+## 5. 会议记录接口
+
+- 接口：`POST /api/meetings`
+- 输入：认证信息 + 音频文件 + 文件名 + 时长
+- 预期：
+  - 返回 `id`
+  - 返回 `status=draft`
+  - 返回 `audio_url`
+
+## 6. 历史会议列表
+
+- 接口：`GET /api/meetings`
+- 预期：
+  - 仅返回当前登录用户自己的会议
+  - 返回 `id`、`title`、`status`、`preview`、`updated_at`
+
+## 7. 会议详情
+
+- 接口：`GET /api/meetings/{meeting_id}`
+- 预期：
+  - 返回会议基本信息
+  - 返回转录结果和摘要结果
+  - 未授权或跨用户访问时不能读到他人会议
