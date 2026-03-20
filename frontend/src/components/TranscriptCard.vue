@@ -19,24 +19,21 @@ defineProps({
 
     <div class="text-block">{{ transcript.text || "正在等待转录内容返回。" }}</div>
 
-    <details v-if="transcript.segments?.length" class="segment-panel">
-      <summary>查看时间分段（{{ transcript.segments.length }}）</summary>
-      <div class="segment-list">
-        <article v-for="segment in transcript.segments" :key="`${segment.start}-${segment.end}`" class="segment-item">
-          <strong>{{ segment.start.toFixed(1) }}s - {{ segment.end.toFixed(1) }}s</strong>
-          <span>{{ segment.text }}</span>
-        </article>
-      </div>
-    </details>
+    <div class="segment-list" v-if="transcript.segments?.length">
+      <article v-for="segment in transcript.segments" :key="`${segment.start}-${segment.end}`" class="segment-item">
+        <strong>{{ segment.start.toFixed(1) }}s - {{ segment.end.toFixed(1) }}s</strong>
+        <span>{{ segment.text }}</span>
+      </article>
+    </div>
   </section>
 </template>
 
 <style scoped>
 .analysis-card {
-  margin-top: 12px;
-  padding: 16px;
+  margin-top: 14px;
+  padding: 18px;
   border: 1px solid var(--line-soft);
-  border-radius: 18px;
+  border-radius: 20px;
   background: white;
 }
 
@@ -51,7 +48,7 @@ defineProps({
 .label {
   margin: 0 0 6px;
   color: var(--text-soft);
-  font-size: 0.68rem;
+  font-size: 0.74rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
@@ -59,57 +56,46 @@ defineProps({
 h4 {
   margin: 0;
   color: var(--text-strong);
-  font-size: 0.98rem;
+  font-size: 1.08rem;
 }
 
 .analysis-header span {
   color: var(--text-soft);
-  font-size: 0.82rem;
+  font-size: 0.9rem;
 }
 
 .text-block {
-  padding: 12px 13px;
-  border-radius: 14px;
+  padding: 14px;
+  border-radius: 16px;
   background: var(--surface-soft);
   color: var(--text-main);
-  line-height: 1.72;
+  line-height: 1.8;
   white-space: pre-wrap;
-}
-
-.segment-panel {
-  margin-top: 12px;
-}
-
-.segment-panel summary {
-  color: var(--text-soft);
-  font-size: 0.82rem;
-  cursor: pointer;
-  user-select: none;
 }
 
 .segment-list {
   display: grid;
-  gap: 8px;
-  margin-top: 10px;
-  max-height: 260px;
+  gap: 10px;
+  margin-top: 12px;
+  max-height: 300px;
   overflow: auto;
 }
 
 .segment-item {
   display: grid;
-  gap: 5px;
-  padding: 10px 12px;
-  border-radius: 14px;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 16px;
   background: #f8fafc;
 }
 
 .segment-item strong {
   color: var(--accent-strong);
-  font-size: 0.8rem;
+  font-size: 0.86rem;
 }
 
 .segment-item span {
   color: var(--text-main);
-  line-height: 1.62;
+  line-height: 1.7;
 }
 </style>

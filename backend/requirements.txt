@@ -10,9 +10,3 @@ SQLAlchemy==2.0.38
 PyMySQL==1.1.1
 mysql-connector-python==9.4.0
 soundfile==0.13.1
-langchain==0.3.26
-langgraph==0.2.60
-langchain-openai==0.3.26
-langchain-chroma==0.2.6
-chromadb==1.0.21
-sentence-transformers==3.0.1

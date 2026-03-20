@@ -19,17 +19,17 @@ defineProps({
 
 <style scoped>
 .result-card {
-  margin-top: 12px;
-  padding: 16px;
+  margin-top: 14px;
+  padding: 18px;
   border: 1px solid var(--line-soft);
-  border-radius: 18px;
+  border-radius: 20px;
   background: white;
 }
 
 .label {
   margin: 0 0 6px;
   color: var(--text-soft);
-  font-size: 0.68rem;
+  font-size: 0.74rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
@@ -37,25 +37,24 @@ defineProps({
 h4 {
   margin: 0;
   color: var(--text-strong);
-  font-size: 0.98rem;
+  font-size: 1.06rem;
 }
 
 .tag-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 12px;
+  gap: 10px;
+  margin-top: 14px;
 }
 
 .tag-item {
   display: inline-flex;
   align-items: center;
-  min-height: 30px;
-  padding: 0 11px;
+  min-height: 34px;
+  padding: 0 12px;
   border-radius: 999px;
   background: #eef4ff;
   color: #1f49b6;
-  font-size: 0.8rem;
   font-weight: 700;
 }
 </style>

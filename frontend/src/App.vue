@@ -52,55 +52,42 @@ const {
   withAuth,
 } = auth;
 
-const conversationWorkspace = useConversationWorkspace({
-  notify,
-  resolveError,
-});
+const conversationWorkspace = useConversationWorkspace();
 
 const {
   currentConversationId,
-  findMessageId,
   messages,
   sidebarConversations,
   workspace,
-  applyMeetingDetail,
-  hydrateMeetings,
+  createNewConversation,
   resetWorkspaceState,
   revokeAudioUrl,
+  saveCurrentConversation,
   selectConversation: restoreConversation,
 } = conversationWorkspace;
 
 const meetingWorkflow = useMeetingWorkflow({
   workspace,
-  session,
   isAuthenticated,
   withAuth,
   notify,
   resolveError,
   pushMessage: conversationWorkspace.pushMessage,
   upsertMessage: conversationWorkspace.upsertMessage,
-  applyMeetingDetail,
-  findMessageId,
-  hydrateMeetings,
 });
 
 const {
   canAskQuestions,
   canDownloadNotes,
   canGenerateSummary,
-  canStopTranscription,
   composerPlaceholder,
   composerText,
   downloadNotes,
-  handleClearMeetings,
-  handleDeleteMeeting,
   handlePendingAction,
   handleSuggestion,
   handleSummary,
-  handleStopTranscribe,
   handleTranscribe,
   headerDescription,
-  resumeActiveTranscriptionIfNeeded,
   resetTransientState,
   setUploadRequestHandler,
   statusLabel,
@@ -112,16 +99,10 @@ const audioFileContext = useAudioFileContext({
   workspace,
   withAuth,
   notify,
+  resetMessages: conversationWorkspace.resetMessages,
+  pushMessage: conversationWorkspace.pushMessage,
   revokeAudioUrl,
   onBeforeApplyFile: resetTransientState,
-  tokenRef: {
-    get value() {
-      return session.token;
-    },
-  },
-  resolveError,
-  applyMeetingDetail,
-  hydrateMeetings,
 });
 
 const { fileInputRef, handleFileSelect, handleUploadRequest } = audioFileContext;
@@ -130,48 +111,47 @@ setPendingActionHandler(handlePendingAction);
 setUploadRequestHandler(handleUploadRequest);
 
 function startNewAnalysis() {
+  saveCurrentConversation();
   resetTransientState();
+  createNewConversation();
   resetWorkspaceState();
   sidebarOpen.value = false;
 }
 
-async function selectConversation(conversationId) {
+function selectConversation(conversationId) {
   if (conversationId === currentConversationId.value) {
     sidebarOpen.value = false;
     return;
   }
 
+  saveCurrentConversation();
   resetTransientState();
-  if (await restoreConversation(conversationId, session.token)) {
-    await resumeActiveTranscriptionIfNeeded();
+  if (restoreConversation(conversationId)) {
     sidebarOpen.value = false;
   }
 }
 
 onMounted(async () => {
   await hydrateSession();
-  if (session.token) {
-    await hydrateMeetings(session.token);
-    await resumeActiveTranscriptionIfNeeded();
-  }
 });
 
 watch(
-  () => session.token,
-  async (token, previousToken) => {
-    if (token === previousToken) {
-      return;
-    }
-
-    if (!token) {
-      resetTransientState();
-      resetWorkspaceState();
-      return;
-    }
-
-    await hydrateMeetings(token);
-    await resumeActiveTranscriptionIfNeeded();
+  () => [
+    messages.value,
+    workspace.fileName,
+    workspace.durationLabel,
+    workspace.language,
+    workspace.transcript,
+    workspace.summary,
+    workspace.transcriptionStatus,
+    workspace.completedChunks,
+    workspace.totalChunks,
+    workspace.summaryGeneratedAt,
+  ],
+  () => {
+    saveCurrentConversation();
   },
+  { deep: true },
 );
 
 onBeforeUnmount(() => {
@@ -188,8 +168,6 @@ onBeforeUnmount(() => {
         :conversations="sidebarConversations"
         :active-conversation-id="currentConversationId"
         @select-conversation="selectConversation"
-        @delete-conversation="handleDeleteMeeting"
-        @clear-conversations="handleClearMeetings"
         @new-analysis="startNewAnalysis"
         @request-login="openLoginModal()"
         @logout="handleLogout"
@@ -205,9 +183,6 @@ onBeforeUnmount(() => {
         :status-label="statusLabel"
         :description="headerDescription"
         :file-name="workspace.fileName"
-        :progress-completed="workspace.completedChunks"
-        :progress-total="workspace.totalChunks"
-        :progress-status="workspace.transcriptionStatus"
         @toggle-sidebar="sidebarOpen = true"
         @request-login="openLoginModal()"
       >
@@ -242,11 +217,9 @@ onBeforeUnmount(() => {
         :placeholder="composerPlaceholder"
         :can-generate-summary="canGenerateSummary"
         :can-ask-questions="canAskQuestions"
-        :can-stop-transcription="canStopTranscription"
         :can-download-notes="canDownloadNotes"
         :work-loading="workLoading"
         @upload="handleUploadRequest"
-        @stop-transcribe="handleStopTranscribe"
         @transcribe="handleTranscribe"
         @summary="handleSummary"
         @download="downloadNotes"
@@ -278,7 +251,7 @@ onBeforeUnmount(() => {
 .app-shell {
   height: 100vh;
   display: grid;
-  grid-template-columns: 236px minmax(0, 1fr);
+  grid-template-columns: 272px minmax(0, 1fr);
   background: var(--app-bg);
   overflow: hidden;
 }
@@ -303,7 +276,7 @@ onBeforeUnmount(() => {
 
 .workspace-body {
   min-height: 0;
-  padding: 0 18px;
+  padding: 0 22px;
   overflow: hidden;
 }
 

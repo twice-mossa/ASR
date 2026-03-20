@@ -22,7 +22,7 @@ export function formatTime(seconds) {
 }
 
 export function formatConversationTime(timestamp) {
-  const date = timestamp ? new Date(timestamp) : new Date();
+  const date = new Date(timestamp);
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   const hours = String(date.getHours()).padStart(2, "0");
@@ -62,14 +62,10 @@ export function buildMessage(role, kind, text = "", extra = {}) {
 
 export function defaultWorkspaceState() {
   return {
-    meetingId: null,
-    meetingStatus: "idle",
     file: null,
     fileName: "",
     audioUrl: "",
-    persistedAudioUrl: "",
     transcript: null,
-    transcriptionJob: null,
     summary: null,
     isDragging: false,
     transcriptionStatus: "idle",
@@ -78,18 +74,6 @@ export function defaultWorkspaceState() {
     durationLabel: "--:--",
     language: "zh",
     summaryGeneratedAt: "",
-    summaryEmail: {
-      enabled: false,
-      recipient_email: "",
-      last_status: "idle",
-      last_delivery_type: null,
-      last_sent_at: null,
-      last_error: null,
-    },
-    knowledgeStatus: "idle",
-    error: "",
-    audioSeekTo: null,
-    audioSeekNonce: 0,
   };
 }
 
@@ -116,75 +100,58 @@ export function cloneSummary(summary) {
   };
 }
 
-export function cloneTranscriptionJob(job) {
-  if (!job) {
-    return null;
-  }
-
-  return {
-    ...job,
-    segments: (job.segments || []).map((segment) => ({ ...segment })),
-  };
-}
-
-export function cloneSummaryEmail(summaryEmail) {
-  if (!summaryEmail) {
-    return {
-      enabled: false,
-      recipient_email: "",
-      last_status: "idle",
-      last_delivery_type: null,
-      last_sent_at: null,
-      last_error: null,
-    };
-  }
-
-  return {
-    enabled: Boolean(summaryEmail.enabled),
-    recipient_email: summaryEmail.recipient_email || "",
-    last_status: summaryEmail.last_status || "idle",
-    last_delivery_type: summaryEmail.last_delivery_type || null,
-    last_sent_at: summaryEmail.last_sent_at || null,
-    last_error: summaryEmail.last_error || null,
-  };
-}
-
 export function cloneMessages(list) {
   return list.map((message) => ({
     ...message,
     progress: message.progress ? { ...message.progress } : undefined,
-    progressMeta: message.progressMeta ? { ...message.progressMeta } : undefined,
     transcript: message.transcript ? cloneTranscript(message.transcript) : undefined,
     keywords: message.keywords ? [...message.keywords] : undefined,
     todos: message.todos ? [...message.todos] : undefined,
     reasoningItems: message.reasoningItems ? [...message.reasoningItems] : undefined,
-    citations: message.citations ? message.citations.map((citation) => ({ ...citation })) : undefined,
-    topicLabels: message.topicLabels ? [...message.topicLabels] : undefined,
-    evidenceBlocks: message.evidenceBlocks
-      ? message.evidenceBlocks.map((block) => ({
-          ...block,
-          citations: (block.citations || []).map((citation) => ({ ...citation })),
-        }))
-      : undefined,
     sources: message.sources ? [...message.sources] : undefined,
   }));
 }
 
-export function formatTimestamp(seconds) {
-  if (!Number.isFinite(seconds)) {
-    return "--:--";
+export function buildConversationTitle(workspaceSnapshot, messageList, fallback = "新的分析") {
+  if (workspaceSnapshot.fileName) {
+    return workspaceSnapshot.fileName;
   }
 
-  const totalSeconds = Math.max(0, Math.floor(seconds));
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const remainSeconds = totalSeconds % 60;
-
-  if (hours > 0) {
-    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(remainSeconds).padStart(2, "0")}`;
+  const firstUserMessage = messageList.find((message) => message.role === "user" && message.text);
+  if (firstUserMessage?.text) {
+    return firstUserMessage.text.slice(0, 18);
   }
 
-  return `${String(minutes).padStart(2, "0")}:${String(remainSeconds).padStart(2, "0")}`;
+  return fallback;
+}
+
+export function buildConversationPreview(workspaceSnapshot, messageList) {
+  const lastMessage = [...messageList].reverse().find((message) => message.text);
+  if (lastMessage?.text) {
+    return lastMessage.text.slice(0, 34);
+  }
+
+  if (workspaceSnapshot.summary?.summary) {
+    return workspaceSnapshot.summary.summary.slice(0, 34);
+  }
+
+  if (workspaceSnapshot.fileName) {
+    return "已上传音频，继续整理这段内容。";
+  }
+
+  return "上传音频后开始分析。";
+}
+
+export function createConversation() {
+  const id = `conversation-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+  return {
+    id,
+    title: "新的分析",
+    preview: "上传音频后开始分析。",
+    updatedAt: Date.now(),
+    workspace: defaultWorkspaceState(),
+    messages: [],
+  };
 }
 
 export function buildNotesMarkdown({ fileName, summary, keywords, todos, language, durationLabel, summaryGeneratedAt }) {

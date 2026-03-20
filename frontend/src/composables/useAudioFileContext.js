@@ -1,18 +1,15 @@
 import { ref } from "vue";
 
-import { createMeetingRecord } from "../api/meeting";
 import { formatTime } from "../utils/workspace";
 
 export function useAudioFileContext({
   workspace,
   withAuth,
   notify,
+  resetMessages,
+  pushMessage,
   revokeAudioUrl,
   onBeforeApplyFile,
-  tokenRef,
-  resolveError,
-  applyMeetingDetail,
-  hydrateMeetings,
 }) {
   const fileInputRef = ref(null);
 
@@ -70,24 +67,29 @@ export function useAudioFileContext({
   }
 
   async function applySelectedFile(file) {
-    const token = tokenRef.value;
-    if (!token) {
-      notify("请先登录后再上传音频。", "warning", "需要登录");
+    onBeforeApplyFile?.();
+    revokeAudioUrl();
+    workspace.file = file || null;
+    workspace.fileName = file?.name || "";
+    workspace.audioUrl = file ? URL.createObjectURL(file) : "";
+    workspace.transcript = null;
+    workspace.summary = null;
+    workspace.transcriptionStatus = "idle";
+    workspace.completedChunks = 0;
+    workspace.totalChunks = 1;
+    workspace.durationLabel = file ? await getAudioDurationLabel(file) : "--:--";
+    workspace.language = "zh";
+    workspace.summaryGeneratedAt = "";
+    resetMessages();
+
+    if (!file) {
       return;
     }
 
-    onBeforeApplyFile?.();
-    revokeAudioUrl();
-
-    const durationLabel = file ? await getAudioDurationLabel(file) : "--:--";
-    const meetingDetail = await createMeetingRecord({
-      token,
-      file,
-      durationLabel,
+    pushMessage("system", "upload_event", "已接收新的音频上下文。你可以先开始转录，随后再生成摘要与待办。", {
+      fileName: file.name,
     });
-
-    applyMeetingDetail(meetingDetail, file);
-    await hydrateMeetings(token, meetingDetail.id);
+    pushMessage("assistant", "assistant_answer", "音频已就绪。等你点击“开始转录”后，我会把结果整理成对话里的结构化卡片。");
   }
 
   async function handleFileSelect(event) {
@@ -107,12 +109,8 @@ export function useAudioFileContext({
       return;
     }
 
-    try {
-      await applySelectedFile(file);
-      notify("音频已加入当前工作台，并保存为新的会议记录。", "success", "上传成功");
-    } catch (error) {
-      notify(resolveError(error, "上传音频失败，请稍后再试。"), "error", "上传失败");
-    }
+    await applySelectedFile(file);
+    notify("音频已加入当前工作台", "success", "上传成功");
   }
 
   function handleUploadRequest() {

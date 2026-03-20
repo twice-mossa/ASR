@@ -1,7 +1,5 @@
 <script setup>
-import { nextTick, ref, watch } from "vue";
-
-const props = defineProps({
+defineProps({
   workspace: {
     type: Object,
     required: true,
@@ -13,57 +11,35 @@ const props = defineProps({
 });
 
 const emit = defineEmits(["upload", "download"]);
-const audioRef = ref(null);
-
-watch(
-  () => props.workspace.audioSeekNonce,
-  async () => {
-    const seconds = props.workspace.audioSeekTo;
-    const audio = audioRef.value;
-    if (!audio || !Number.isFinite(seconds)) {
-      return;
-    }
-
-    await nextTick();
-    audio.currentTime = Math.max(0, seconds);
-  },
-);
 </script>
 
 <template>
   <div v-if="workspace.audioUrl" class="audio-tray">
-    <div class="audio-tray__inner">
-      <div class="audio-tray__meta">
-        <p class="audio-tray__label">当前音频</p>
-        <strong>{{ workspace.fileName }}</strong>
-        <span>{{ workspace.durationLabel }} · {{ workspace.language || "zh" }}</span>
-      </div>
+    <div class="audio-tray__meta">
+      <p class="audio-tray__label">当前音频轨道</p>
+      <strong>{{ workspace.fileName }}</strong>
+      <span>{{ workspace.durationLabel }} · {{ workspace.language || "zh" }}</span>
+    </div>
 
-      <audio :src="workspace.audioUrl" class="audio-player" controls preload="metadata" />
+    <audio :src="workspace.audioUrl" class="audio-player" controls preload="metadata" />
 
-      <div class="audio-tray__actions">
-        <button class="tray-button tray-button--ghost" @click="emit('upload')">更换音频</button>
-        <button class="tray-button" :disabled="!canDownloadNotes" @click="emit('download')">下载会议纪要</button>
-      </div>
+    <div class="audio-tray__actions">
+      <button class="tray-button tray-button--ghost" @click="emit('upload')">更换音频</button>
+      <button class="tray-button" :disabled="!canDownloadNotes" @click="emit('download')">下载会议纪要</button>
     </div>
   </div>
 </template>
 
 <style scoped>
 .audio-tray {
-  padding: 8px 18px 8px;
-  border-top: 1px solid var(--line-soft);
-  background: linear-gradient(180deg, rgba(252, 253, 255, 0.8), rgba(248, 251, 255, 0.9));
-  backdrop-filter: blur(12px);
-}
-
-.audio-tray__inner {
   display: grid;
   grid-template-columns: auto minmax(260px, 1fr) auto;
-  gap: 12px;
+  gap: 14px;
   align-items: center;
-  max-width: 920px;
-  margin: 0 auto;
+  padding: 10px 22px 12px;
+  border-top: 1px solid var(--line-soft);
+  background: linear-gradient(180deg, rgba(252, 253, 255, 0.92), rgba(248, 251, 255, 0.98));
+  backdrop-filter: blur(14px);
 }
 
 .audio-tray__meta {
@@ -75,26 +51,26 @@ watch(
 .audio-tray__label {
   margin: 0;
   color: var(--text-soft);
-  font-size: 0.64rem;
+  font-size: 0.7rem;
   letter-spacing: 0.16em;
   text-transform: uppercase;
 }
 
 .audio-tray__meta strong {
   color: var(--text-strong);
-  font-size: 0.88rem;
+  font-size: 0.92rem;
   line-height: 1.4;
 }
 
 .audio-tray__meta span {
   color: var(--text-soft);
-  font-size: 0.76rem;
+  font-size: 0.82rem;
 }
 
 .audio-player {
   width: 100%;
   min-width: 0;
-  height: 34px;
+  height: 36px;
 }
 
 .audio-tray__actions {
@@ -104,13 +80,13 @@ watch(
 }
 
 .tray-button {
-  min-height: 31px;
-  padding: 0 11px;
+  min-height: 34px;
+  padding: 0 12px;
   border: 0;
   border-radius: 999px;
   background: var(--accent);
   color: white;
-  font-size: 0.78rem;
+  font-size: 0.84rem;
   font-weight: 700;
   cursor: pointer;
 }
@@ -127,9 +103,10 @@ watch(
 }
 
 @media (max-width: 980px) {
-  .audio-tray__inner {
+  .audio-tray {
     grid-template-columns: 1fr;
     gap: 10px;
+    padding: 10px 12px;
   }
 
   .audio-tray__actions {

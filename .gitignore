@@ -14,6 +14,3 @@ coverage/
 .pytest_cache/
 .idea/
 .vscode/
-backend/data/uploads/
-backend/data/vectorstore/
-run-logs/
