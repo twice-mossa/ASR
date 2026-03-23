@@ -94,6 +94,7 @@ const {
   downloadNotes,
   handleClearMeetings,
   handleDeleteMeeting,
+  handleRenameMeeting,
   handlePendingAction,
   handleSuggestion,
   handleSummary,
@@ -189,6 +190,7 @@ onBeforeUnmount(() => {
         :active-conversation-id="currentConversationId"
         @select-conversation="selectConversation"
         @delete-conversation="handleDeleteMeeting"
+        @rename-conversation="handleRenameMeeting($event.id, $event.title)"
         @clear-conversations="handleClearMeetings"
         @new-analysis="startNewAnalysis"
         @request-login="openLoginModal()"

@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import HTTPException, UploadFile, status
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 
 from app.core.config import settings
 from app.core.database import SessionLocal
@@ -26,6 +26,7 @@ from app.schemas.meeting import (
     MeetingDetailResponse,
     MeetingEvidenceBlock,
     MeetingListItem,
+    MeetingUpdateRequest,
     MeetingQARecordResponse,
     MeetingSummaryEmailStatusResponse,
     MeetingSummaryResponse,
@@ -261,12 +262,21 @@ def create_meeting(payload: MeetingCreateRequest, file: UploadFile, current_user
         )
 
 
-def list_meetings(current_user: UserProfile) -> list[MeetingListItem]:
+def list_meetings(current_user: UserProfile, query: str = "") -> list[MeetingListItem]:
+    normalized_query = query.strip()
     with _get_session() as db:
+        statement = select(Meeting).where(Meeting.user_id == current_user.id)
+        if normalized_query:
+            like_query = f"%{normalized_query}%"
+            statement = statement.where(
+                or_(
+                    Meeting.title.ilike(like_query),
+                    Meeting.filename.ilike(like_query),
+                    Meeting.transcript_text.ilike(like_query),
+                )
+            )
         meetings = db.execute(
-            select(Meeting)
-            .where(Meeting.user_id == current_user.id)
-            .order_by(Meeting.updated_at.desc(), Meeting.id.desc())
+            statement.order_by(Meeting.updated_at.desc(), Meeting.id.desc())
         ).scalars().all()
 
         summary_map = {}
@@ -342,6 +352,23 @@ def get_meeting_detail(meeting_id: int, current_user: UserProfile) -> MeetingDet
             qa_records=_build_qa_records(qa_records),
             knowledge_status=str(knowledge_pack.status) if knowledge_pack else "idle",
         )
+
+
+def update_meeting_record(
+    meeting_id: int,
+    payload: MeetingUpdateRequest,
+    current_user: UserProfile,
+) -> MeetingDetailResponse:
+    title = payload.title.strip()
+    if not title:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="会议标题不能为空")
+
+    with _get_session() as db:
+        meeting = _get_owned_meeting(db, meeting_id, current_user.id)
+        meeting.title = title
+        db.commit()
+
+    return get_meeting_detail(meeting_id, current_user)
 
 
 def get_meeting_audio_payload(meeting_id: int, current_user: UserProfile) -> tuple[Meeting, bytes, str]:
@@ -575,17 +602,6 @@ def delete_all_meeting_records(current_user: UserProfile) -> dict[str, int | str
 
 
 def require_user_from_authorization(authorization: str | None) -> UserProfile:
-    from app.services.auth_service import _SESSIONS
+    from app.services.auth_service import get_current_user
 
-    if not authorization:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="缺少认证信息")
-
-    scheme, _, token = authorization.partition(" ")
-    if scheme.lower() != "bearer" or not token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="认证格式错误")
-
-    user = _SESSIONS.get(token)
-    if user is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="登录状态已失效")
-
-    return user
+    return get_current_user(authorization)

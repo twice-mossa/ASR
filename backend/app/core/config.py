@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     qa_knowledge_pack_wait_seconds: int = 8
     openai_api_key: str = ""
     openai_base_url: str = ""
+    jwt_secret_key: str = "replace-me-in-production"
+    jwt_expire_minutes: int = 60 * 24 * 7
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

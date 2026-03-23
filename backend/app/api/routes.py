@@ -1,6 +1,6 @@
 import asyncio
 
-from fastapi import APIRouter, File, Form, Header, UploadFile
+from fastapi import APIRouter, File, Form, Header, Query, UploadFile
 
 from app.schemas.auth import AuthResponse, LoginRequest, LogoutResponse, RegisterRequest, UserProfile
 from app.schemas.meeting import (
@@ -11,6 +11,7 @@ from app.schemas.meeting import (
     MeetingListItem,
     MeetingSummaryEmailSendResponse,
     MeetingSummaryResponse,
+    MeetingUpdateRequest,
     SummaryRequest,
     TranscriptJobCreateResponse,
     TranscriptJobStatusResponse,
@@ -25,6 +26,7 @@ from app.services.meeting_service import (
     get_meeting_detail,
     list_meetings,
     require_user_from_authorization,
+    update_meeting_record,
 )
 from app.services.minimax_service import build_summary, build_summary_for_meeting
 from app.services.qa_service import ask_meeting_question
@@ -124,15 +126,28 @@ async def create_meeting_record(
 
 
 @router.get("/meetings", response_model=list[MeetingListItem])
-def read_meeting_records(authorization: str | None = Header(default=None)) -> list[MeetingListItem]:
+def read_meeting_records(
+    authorization: str | None = Header(default=None),
+    query: str = Query(default=""),
+) -> list[MeetingListItem]:
     current_user = require_user_from_authorization(authorization)
-    return list_meetings(current_user)
+    return list_meetings(current_user, query=query)
 
 
 @router.get("/meetings/{meeting_id}", response_model=MeetingDetailResponse)
 def read_meeting_record(meeting_id: int, authorization: str | None = Header(default=None)) -> MeetingDetailResponse:
     current_user = require_user_from_authorization(authorization)
     return get_meeting_detail(meeting_id, current_user)
+
+
+@router.patch("/meetings/{meeting_id}", response_model=MeetingDetailResponse)
+def update_meeting(
+    meeting_id: int,
+    payload: MeetingUpdateRequest,
+    authorization: str | None = Header(default=None),
+) -> MeetingDetailResponse:
+    current_user = require_user_from_authorization(authorization)
+    return update_meeting_record(meeting_id, payload, current_user)
 
 
 @router.delete("/meetings/{meeting_id}")

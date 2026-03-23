@@ -1,9 +1,25 @@
 <script setup>
-defineProps({
+import { computed, ref } from "vue";
+
+import { formatTimestamp } from "../utils/workspace";
+
+const props = defineProps({
   transcript: {
     type: Object,
     required: true,
   },
+});
+
+const emit = defineEmits(["seek"]);
+const keywordQuery = ref("");
+
+const filteredSegments = computed(() => {
+  const segments = props.transcript.segments || [];
+  const normalizedQuery = keywordQuery.value.trim().toLowerCase();
+  if (!normalizedQuery) {
+    return segments;
+  }
+  return segments.filter((segment) => String(segment.text || "").toLowerCase().includes(normalizedQuery));
 });
 </script>
 
@@ -21,11 +37,21 @@ defineProps({
 
     <details v-if="transcript.segments?.length" class="segment-panel">
       <summary>查看时间分段（{{ transcript.segments.length }}）</summary>
+      <div class="segment-search">
+        <input v-model.trim="keywordQuery" type="search" placeholder="检索关键词并定位到对应片段" />
+        <span>{{ keywordQuery ? `命中 ${filteredSegments.length} 段` : "点击片段可跳转回放" }}</span>
+      </div>
       <div class="segment-list">
-        <article v-for="segment in transcript.segments" :key="`${segment.start}-${segment.end}`" class="segment-item">
-          <strong>{{ segment.start.toFixed(1) }}s - {{ segment.end.toFixed(1) }}s</strong>
+        <button
+          v-for="segment in filteredSegments"
+          :key="`${segment.start}-${segment.end}`"
+          class="segment-item"
+          type="button"
+          @click="emit('seek', segment.start)"
+        >
+          <strong>{{ formatTimestamp(segment.start) }} - {{ formatTimestamp(segment.end) }}</strong>
           <span>{{ segment.text }}</span>
-        </article>
+        </button>
       </div>
     </details>
   </section>
@@ -95,12 +121,36 @@ h4 {
   overflow: auto;
 }
 
+.segment-search {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.segment-search input {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  outline: none;
+}
+
+.segment-search span {
+  color: var(--text-soft);
+  font-size: 0.78rem;
+}
+
 .segment-item {
   display: grid;
   gap: 5px;
+  width: 100%;
   padding: 10px 12px;
+  border: 0;
   border-radius: 14px;
   background: #f8fafc;
+  cursor: pointer;
+  text-align: left;
 }
 
 .segment-item strong {
@@ -111,5 +161,9 @@ h4 {
 .segment-item span {
   color: var(--text-main);
   line-height: 1.62;
+}
+
+.segment-item:hover {
+  background: #edf4ff;
 }
 </style>
