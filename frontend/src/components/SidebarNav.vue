@@ -1,5 +1,7 @@
 <script setup>
-defineProps({
+import { computed, ref } from "vue";
+
+const props = defineProps({
   authenticated: {
     type: Boolean,
     required: true,
@@ -17,15 +19,30 @@ defineProps({
     default: "",
   },
 });
+const searchQuery = ref("");
 
 const emit = defineEmits([
   "select-conversation",
   "delete-conversation",
+  "rename-conversation",
   "clear-conversations",
   "new-analysis",
   "request-login",
   "logout",
 ]);
+
+const visibleConversations = computed(() => {
+  const normalizedQuery = searchQuery.value.trim().toLowerCase();
+  if (!normalizedQuery) {
+    return props.conversations;
+  }
+
+  return props.conversations.filter((item) => {
+    return [item.title, item.preview, item.status]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(normalizedQuery));
+  });
+});
 </script>
 
 <template>
@@ -44,14 +61,16 @@ const emit = defineEmits([
       <div class="block-header">
         <span>历史会议</span>
         <div class="block-header__actions">
-          <small>{{ conversations.length }}</small>
+          <small>{{ visibleConversations.length }}</small>
           <button v-if="authenticated && conversations.length" class="history-clear" @click="emit('clear-conversations')">清空</button>
         </div>
       </div>
 
+      <input v-model.trim="searchQuery" class="history-search" type="search" placeholder="搜索标题、内容或状态" />
+
       <div class="history-list">
         <article
-          v-for="item in conversations"
+          v-for="item in visibleConversations"
           :key="item.id"
           class="history-item"
           :class="{ 'history-item--active': activeConversationId === item.id }"
@@ -60,6 +79,14 @@ const emit = defineEmits([
             <strong>{{ item.title }}</strong>
             <span>{{ item.preview }}</span>
             <small>{{ item.updatedLabel }}</small>
+          </button>
+          <button
+            v-if="authenticated"
+            class="history-item__rename"
+            type="button"
+            @click="emit('rename-conversation', item)"
+          >
+            重命名
           </button>
           <button
             v-if="authenticated"
@@ -190,11 +217,23 @@ h1 {
   overflow-y: auto;
 }
 
+.history-search {
+  width: 100%;
+  min-height: 34px;
+  margin-bottom: 10px;
+  padding: 0 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--text-main);
+  outline: none;
+}
+
 .history-item {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 6px;
   align-items: start;
   padding: 0;
   border: 1px solid transparent;
@@ -215,18 +254,27 @@ h1 {
   text-align: left;
 }
 
+.history-item__rename,
 .history-item__delete {
   align-self: center;
-  margin-right: 8px;
   border: 0;
   border-radius: 999px;
-  background: rgba(185, 28, 28, 0.08);
-  color: #b91c1c;
   font-size: 0.7rem;
   padding: 4px 8px;
   cursor: pointer;
   opacity: 0;
   transition: opacity 180ms ease, background 180ms ease;
+}
+
+.history-item__rename {
+  background: rgba(29, 78, 216, 0.08);
+  color: var(--accent-strong);
+}
+
+.history-item__delete {
+  margin-right: 8px;
+  background: rgba(185, 28, 28, 0.08);
+  color: #b91c1c;
 }
 
 .history-item__main strong {
@@ -253,9 +301,15 @@ h1 {
   border-color: rgba(148, 163, 184, 0.14);
 }
 
+.history-item:hover .history-item__rename,
 .history-item:hover .history-item__delete,
+.history-item--active .history-item__rename,
 .history-item--active .history-item__delete {
   opacity: 1;
+}
+
+.history-item__rename:hover {
+  background: rgba(29, 78, 216, 0.14);
 }
 
 .history-item__delete:hover {

@@ -10,6 +10,7 @@ import {
   startMeetingTranscriptionJob,
   stopTranscriptionJob,
   summarizeMeeting,
+  updateMeeting,
 } from "../api/meeting";
 import { buildNotesMarkdown, slugifyFilename } from "../utils/workspace";
 
@@ -444,6 +445,37 @@ export function useMeetingWorkflow({
     }
   }
 
+  async function handleRenameMeeting(meetingId = workspace.meetingId, currentTitle = "") {
+    if (!withAuth({ type: "rename-meeting", meetingId })) {
+      return;
+    }
+
+    if (!meetingId) {
+      return;
+    }
+
+    const nextTitle = window.prompt("输入新的会议标题", currentTitle || workspace.fileName || "");
+    if (nextTitle === null) {
+      return;
+    }
+
+    const normalizedTitle = nextTitle.trim();
+    if (!normalizedTitle || normalizedTitle === currentTitle) {
+      return;
+    }
+
+    try {
+      const detail = await updateMeeting(session.token, meetingId, { title: normalizedTitle });
+      if (workspace.meetingId === meetingId) {
+        applyMeetingDetail(detail, workspace.file);
+      }
+      await hydrateMeetings(session.token, meetingId);
+      notify("会议标题已更新", "success", "更新成功");
+    } catch (error) {
+      notify(resolveError(error, "更新会议标题失败，请稍后重试。"), "error", "更新失败");
+    }
+  }
+
   async function handleClearMeetings() {
     if (!withAuth({ type: "clear-meetings" })) {
       return;
@@ -732,6 +764,7 @@ export function useMeetingWorkflow({
     downloadNotes,
     handleClearMeetings,
     handleDeleteMeeting,
+    handleRenameMeeting,
     handlePendingAction,
     handleSendSummaryEmail,
     handleSuggestion,

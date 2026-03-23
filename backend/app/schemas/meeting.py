@@ -107,6 +107,10 @@ class MeetingCreateRequest(BaseModel):
     duration_label: str = Field(default="--:--", max_length=32)
 
 
+class MeetingUpdateRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=255)
+
+
 class MeetingListItem(BaseModel):
     id: int
     title: str

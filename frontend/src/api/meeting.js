@@ -29,8 +29,9 @@ export async function createMeetingRecord({ token, file, durationLabel }) {
   return data;
 }
 
-export async function listMeetings(token) {
+export async function listMeetings(token, query = "") {
   const { data } = await apiClient.get("/meetings", {
+    params: query ? { query } : undefined,
     headers: authHeaders(token),
   });
   return data;
@@ -38,6 +39,13 @@ export async function listMeetings(token) {
 
 export async function getMeetingDetail(token, meetingId) {
   const { data } = await apiClient.get(`/meetings/${meetingId}`, {
+    headers: authHeaders(token),
+  });
+  return data;
+}
+
+export async function updateMeeting(token, meetingId, payload) {
+  const { data } = await apiClient.patch(`/meetings/${meetingId}`, payload, {
     headers: authHeaders(token),
   });
   return data;

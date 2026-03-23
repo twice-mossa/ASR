@@ -26,6 +26,7 @@ watch(
 
     await nextTick();
     audio.currentTime = Math.max(0, seconds);
+    audio.play().catch(() => {});
   },
 );
 </script>
@@ -39,7 +40,7 @@ watch(
         <span>{{ workspace.durationLabel }} · {{ workspace.language || "zh" }}</span>
       </div>
 
-      <audio :src="workspace.audioUrl" class="audio-player" controls preload="metadata" />
+      <audio ref="audioRef" :src="workspace.audioUrl" class="audio-player" controls preload="metadata" />
 
       <div class="audio-tray__actions">
         <button class="tray-button tray-button--ghost" @click="emit('upload')">更换音频</button>

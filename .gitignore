@@ -17,3 +17,11 @@ coverage/
 backend/data/uploads/
 backend/data/vectorstore/
 run-logs/
+
+# Generated presentation artifacts
+*.ppt
+*.pptx
+~$*.pptx
+tmp_ppt_media/
+tmp_asr_ppt_media/
+tmp_*montage*.png

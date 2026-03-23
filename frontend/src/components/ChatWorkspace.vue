@@ -106,7 +106,11 @@ const welcomeCards = [
             </div>
           </div>
 
-          <TranscriptCard v-if="message.kind === 'transcript_result'" :transcript="message.transcript" />
+          <TranscriptCard
+            v-if="message.kind === 'transcript_result'"
+            :transcript="message.transcript"
+            @seek="emit('action', { type: 'seek-audio', seconds: $event })"
+          />
           <SummaryCard
             v-if="message.kind === 'summary_result'"
             :summary="message.summary"
