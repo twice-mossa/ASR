@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -188,6 +189,60 @@ class TranscriptionJobOrderingTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(_transcription_jobs[job_id].status, "stopped")
         update_status.assert_called_with(999, status_value="stopped", error_message="")
+
+    async def test_large_wav_chunks_transcribe_concurrently_and_emit_in_order(self):
+        from app.core.config import settings
+        from app.services.transcription_service import _transcribe_large_wav_with_groq
+
+        original_concurrency = settings.groq_chunk_concurrency
+        settings.groq_chunk_concurrency = 2
+        partial_calls = []
+        active = 0
+        peak_active = 0
+
+        async def fake_single(*, filename, raw, content_type):
+            nonlocal active, peak_active
+            index = int(filename.rsplit("_part_", 1)[1].split(".")[0])
+            active += 1
+            peak_active = max(peak_active, active)
+            await asyncio.sleep(0.01 if index == 1 else 0)
+            active -= 1
+            return TranscriptResponse(
+                filename=filename,
+                language="zh",
+                text=f"第{index}段",
+                segments=[TranscriptSegment(start=0.0, end=1.0, text=f"第{index}段")],
+            )
+
+        try:
+            with patch(
+                "app.services.transcription_service._split_wav_bytes",
+                return_value=[(0.0, b"a"), (10.0, b"b"), (20.0, b"c")],
+            ), patch(
+                "app.services.transcription_service._transcribe_with_groq_single",
+                new=AsyncMock(side_effect=fake_single),
+            ):
+                result = await _transcribe_large_wav_with_groq(
+                    filename="demo.wav",
+                    raw=b"audio",
+                    max_bytes=1024,
+                    on_partial=lambda partial, completed, total: partial_calls.append(
+                        (completed, total, [segment.text for segment in partial.segments])
+                    ),
+                )
+        finally:
+            settings.groq_chunk_concurrency = original_concurrency
+
+        self.assertGreaterEqual(peak_active, 2)
+        self.assertEqual([segment.text for segment in result.segments], ["第1段", "第2段", "第3段"])
+        self.assertEqual(
+            partial_calls,
+            [
+                (1, 3, ["第1段"]),
+                (2, 3, ["第1段", "第2段"]),
+                (3, 3, ["第1段", "第2段", "第3段"]),
+            ],
+        )
 
 
 if __name__ == "__main__":

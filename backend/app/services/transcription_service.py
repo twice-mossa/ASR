@@ -611,46 +611,76 @@ async def _transcribe_large_wav_with_groq(
     chunks = await asyncio.to_thread(_split_wav_bytes, raw, max_bytes)
     logger.info("Chunking large WAV for Groq transcription: %s chunks", len(chunks))
 
-    combined_segments: list[TranscriptSegment] = []
     language = "zh"
     total_chunks = len(chunks)
+    if total_chunks == 0:
+        return _build_transcript_response(filename=filename, language=language, segments=[])
 
-    for index, (offset_seconds, chunk_raw) in enumerate(chunks, start=1):
-        _raise_if_stop_requested(should_stop)
-        chunk_name = f"{os.path.splitext(filename)[0]}_part_{index}.wav"
-        logger.info(
-            "Sending chunk %s/%s to Groq: offset=%.2fs size=%.2fMB",
-            index,
-            total_chunks,
-            offset_seconds,
-            len(chunk_raw) / 1024 / 1024,
-        )
-        result = await _transcribe_with_groq_single(
-            filename=chunk_name,
-            raw=chunk_raw,
-            content_type="audio/wav",
-        )
+    concurrency = max(1, min(total_chunks, settings.groq_chunk_concurrency or 1))
+    semaphore = asyncio.Semaphore(concurrency)
+    chunk_results: dict[int, tuple[float, TranscriptResponse]] = {}
+    next_emit_index = 1
+    completed_in_order = 0
+    combined_segments: list[TranscriptSegment] = []
 
-        if result.language:
-            language = result.language
-
-        for segment in result.segments:
-            combined_segments.append(
-                TranscriptSegment(
-                    start=segment.start + offset_seconds,
-                    end=segment.end + offset_seconds,
-                    text=segment.text,
-                )
+    async def _worker(index: int, offset_seconds: float, chunk_raw: bytes) -> tuple[int, float, TranscriptResponse]:
+        async with semaphore:
+            _raise_if_stop_requested(should_stop)
+            chunk_name = f"{os.path.splitext(filename)[0]}_part_{index}.wav"
+            logger.info(
+                "Sending chunk %s/%s to Groq: offset=%.2fs size=%.2fMB",
+                index,
+                total_chunks,
+                offset_seconds,
+                len(chunk_raw) / 1024 / 1024,
             )
+            result = await _transcribe_with_groq_single(
+                filename=chunk_name,
+                raw=chunk_raw,
+                content_type="audio/wav",
+            )
+            _raise_if_stop_requested(should_stop)
+            return index, offset_seconds, result
 
-        partial_result = _build_transcript_response(
-            filename=filename,
-            language=language,
-            segments=combined_segments.copy(),
-        )
-        if on_partial is not None:
-            on_partial(partial_result, index, total_chunks)
-        _raise_if_stop_requested(should_stop)
+    tasks = [
+        asyncio.create_task(_worker(index, offset_seconds, chunk_raw))
+        for index, (offset_seconds, chunk_raw) in enumerate(chunks, start=1)
+    ]
+
+    try:
+        for task in asyncio.as_completed(tasks):
+            index, offset_seconds, result = await task
+            chunk_results[index] = (offset_seconds, result)
+            if result.language:
+                language = result.language
+
+            while next_emit_index in chunk_results:
+                ordered_offset, ordered_result = chunk_results.pop(next_emit_index)
+                for segment in ordered_result.segments:
+                    combined_segments.append(
+                        TranscriptSegment(
+                            start=segment.start + ordered_offset,
+                            end=segment.end + ordered_offset,
+                            text=segment.text,
+                        )
+                    )
+                completed_in_order += 1
+                next_emit_index += 1
+
+                partial_result = _build_transcript_response(
+                    filename=filename,
+                    language=language,
+                    segments=combined_segments.copy(),
+                )
+                if on_partial is not None:
+                    on_partial(partial_result, completed_in_order, total_chunks)
+                _raise_if_stop_requested(should_stop)
+    except Exception:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
 
     return _build_transcript_response(
         filename=filename,
