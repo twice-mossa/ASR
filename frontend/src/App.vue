@@ -37,6 +37,8 @@ const auth = useAuthSession({
 
 const {
   authLoading,
+  authFeedback,
+  clearAuthFeedback,
   handleLogin,
   handleLogout,
   handleRegister,
@@ -270,6 +272,8 @@ onBeforeUnmount(() => {
       :loading="authLoading"
       :login-form="loginForm"
       :register-form="registerForm"
+      :auth-feedback="authFeedback"
+      @clear-error="clearAuthFeedback"
       @login="handleLogin"
       @register="handleRegister"
     />

@@ -20,9 +20,13 @@ defineProps({
     type: Object,
     required: true,
   },
+  authFeedback: {
+    type: Object,
+    required: true,
+  },
 });
 
-const emit = defineEmits(["update:visible", "update:activeTab", "login", "register"]);
+const emit = defineEmits(["update:visible", "update:activeTab", "login", "register", "clear-error"]);
 </script>
 
 <template>
@@ -40,14 +44,28 @@ const emit = defineEmits(["update:visible", "update:activeTab", "login", "regist
       <p>页面不会提前拦住你，但在上传、生成摘要、继续问答这些关键动作发生时，我们会在这里完成登录。</p>
     </div>
 
-    <el-tabs :model-value="activeTab" stretch @update:model-value="emit('update:activeTab', $event)">
+    <el-tabs
+      :model-value="activeTab"
+      stretch
+      @update:model-value="
+        emit('update:activeTab', $event);
+        emit('clear-error', $event)
+      "
+    >
       <el-tab-pane label="登录" name="login">
         <el-form label-position="top" @submit.prevent="emit('login')">
-          <el-form-item label="用户名或邮箱">
-            <el-input v-model="loginForm.identifier" placeholder="请输入用户名或邮箱" />
+          <p v-if="authFeedback.login.form" class="form-error">{{ authFeedback.login.form }}</p>
+          <el-form-item label="用户名或邮箱" :error="authFeedback.login.fields.identifier">
+            <el-input v-model="loginForm.identifier" placeholder="请输入用户名或邮箱" @input="emit('clear-error', 'login')" />
           </el-form-item>
-          <el-form-item label="密码">
-            <el-input v-model="loginForm.password" type="password" show-password placeholder="请输入密码" />
+          <el-form-item label="密码" :error="authFeedback.login.fields.password">
+            <el-input
+              v-model="loginForm.password"
+              type="password"
+              show-password
+              placeholder="请输入密码"
+              @input="emit('clear-error', 'login')"
+            />
           </el-form-item>
           <el-button type="primary" class="submit-button" :loading="loading" @click="emit('login')">继续进入工作台</el-button>
         </el-form>
@@ -55,21 +73,29 @@ const emit = defineEmits(["update:visible", "update:activeTab", "login", "regist
 
       <el-tab-pane label="注册" name="register">
         <el-form label-position="top" @submit.prevent="emit('register')">
-          <el-form-item label="用户名">
-            <el-input v-model="registerForm.username" placeholder="至少 3 个字符" />
+          <p v-if="authFeedback.register.form" class="form-error">{{ authFeedback.register.form }}</p>
+          <el-form-item label="用户名" :error="authFeedback.register.fields.username">
+            <el-input v-model="registerForm.username" placeholder="至少 3 个字符" @input="emit('clear-error', 'register')" />
           </el-form-item>
-          <el-form-item label="邮箱">
-            <el-input v-model="registerForm.email" placeholder="请输入邮箱" />
+          <el-form-item label="邮箱" :error="authFeedback.register.fields.email">
+            <el-input v-model="registerForm.email" placeholder="请输入邮箱" @input="emit('clear-error', 'register')" />
           </el-form-item>
-          <el-form-item label="密码">
-            <el-input v-model="registerForm.password" type="password" show-password placeholder="至少 6 位密码" />
+          <el-form-item label="密码" :error="authFeedback.register.fields.password">
+            <el-input
+              v-model="registerForm.password"
+              type="password"
+              show-password
+              placeholder="至少 6 位密码"
+              @input="emit('clear-error', 'register')"
+            />
           </el-form-item>
-          <el-form-item label="确认密码">
+          <el-form-item label="确认密码" :error="authFeedback.register.fields.confirmPassword">
             <el-input
               v-model="registerForm.confirmPassword"
               type="password"
               show-password
               placeholder="请再次输入密码"
+              @input="emit('clear-error', 'register')"
             />
           </el-form-item>
           <el-button type="primary" class="submit-button" :loading="loading" @click="emit('register')">创建账号并继续</el-button>
@@ -108,5 +134,14 @@ h2 {
 .submit-button {
   width: 100%;
   margin-top: 8px;
+}
+
+.form-error {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(254, 242, 242, 0.96);
+  color: #b91c1c;
+  line-height: 1.6;
 }
 </style>

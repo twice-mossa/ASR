@@ -22,6 +22,24 @@ export function useAuthSession({ notify, resolveError, onAfterLogout }) {
     password: "",
     confirmPassword: "",
   });
+  const authFeedback = reactive({
+    login: {
+      form: "",
+      fields: {
+        identifier: "",
+        password: "",
+      },
+    },
+    register: {
+      form: "",
+      fields: {
+        username: "",
+        email: "",
+        password: "",
+        confirmPassword: "",
+      },
+    },
+  });
 
   let pendingActionHandler = async () => {};
 
@@ -45,9 +63,83 @@ export function useAuthSession({ notify, resolveError, onAfterLogout }) {
     localStorage.removeItem("auth_user");
   }
 
+  function clearAuthFeedback(mode = "all") {
+    if (mode === "all" || mode === "login") {
+      authFeedback.login.form = "";
+      authFeedback.login.fields.identifier = "";
+      authFeedback.login.fields.password = "";
+    }
+
+    if (mode === "all" || mode === "register") {
+      authFeedback.register.form = "";
+      authFeedback.register.fields.username = "";
+      authFeedback.register.fields.email = "";
+      authFeedback.register.fields.password = "";
+      authFeedback.register.fields.confirmPassword = "";
+    }
+  }
+
+  function applyRequestValidation(mode, detail) {
+    if (!Array.isArray(detail)) {
+      return false;
+    }
+
+    let hasFieldError = false;
+    const fields = authFeedback[mode].fields;
+    for (const item of detail) {
+      const field = item?.loc?.[item.loc.length - 1];
+      if (field && Object.prototype.hasOwnProperty.call(fields, field)) {
+        fields[field] = item?.msg || "输入格式不正确";
+        hasFieldError = true;
+      }
+    }
+    return hasFieldError;
+  }
+
+  function validateLoginForm() {
+    clearAuthFeedback("login");
+    let valid = true;
+
+    if (!loginForm.identifier.trim()) {
+      authFeedback.login.fields.identifier = "请输入用户名或邮箱";
+      valid = false;
+    }
+    if (!loginForm.password) {
+      authFeedback.login.fields.password = "请输入密码";
+      valid = false;
+    }
+
+    return valid;
+  }
+
+  function validateRegisterForm() {
+    clearAuthFeedback("register");
+    let valid = true;
+
+    if (registerForm.username.trim().length < 3) {
+      authFeedback.register.fields.username = "用户名至少 3 个字符";
+      valid = false;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(registerForm.email.trim())) {
+      authFeedback.register.fields.email = "请输入有效邮箱";
+      valid = false;
+    }
+    if (registerForm.password.length < 6) {
+      authFeedback.register.fields.password = "密码至少 6 位";
+      valid = false;
+    }
+    if (registerForm.password !== registerForm.confirmPassword) {
+      authFeedback.register.fields.confirmPassword = "两次输入的密码不一致";
+      valid = false;
+    }
+
+    return valid;
+  }
+
   function openLoginModal(action = null, tab = "login") {
     pendingAction.value = action;
     loginModalTab.value = tab;
+    clearAuthFeedback(tab);
     loginModalVisible.value = true;
   }
 
@@ -72,8 +164,7 @@ export function useAuthSession({ notify, resolveError, onAfterLogout }) {
   }
 
   async function handleRegister() {
-    if (registerForm.password !== registerForm.confirmPassword) {
-      notify("两次输入的密码不一致", "error", "注册失败");
+    if (!validateRegisterForm()) {
       return;
     }
 
@@ -89,10 +180,19 @@ export function useAuthSession({ notify, resolveError, onAfterLogout }) {
       registerForm.email = "";
       registerForm.password = "";
       registerForm.confirmPassword = "";
+      clearAuthFeedback("register");
       loginModalVisible.value = false;
       notify("注册成功，已自动登录", "success", "欢迎回来");
       await runPendingAction();
     } catch (error) {
+      const detail = error?.response?.data?.detail;
+      if (error?.response?.status === 409) {
+        authFeedback.register.form = "用户名或邮箱已存在，请更换后重试。";
+        authFeedback.register.fields.username = "可能已被占用";
+        authFeedback.register.fields.email = "可能已被占用";
+      } else if (!applyRequestValidation("register", detail)) {
+        authFeedback.register.form = resolveError(error, "注册失败，请稍后再试");
+      }
       notify(resolveError(error, "注册失败，请稍后再试"), "error", "注册失败");
     } finally {
       authLoading.value = false;
@@ -100,6 +200,10 @@ export function useAuthSession({ notify, resolveError, onAfterLogout }) {
   }
 
   async function handleLogin() {
+    if (!validateLoginForm()) {
+      return;
+    }
+
     authLoading.value = true;
     try {
       const payload = await loginUser({
@@ -109,10 +213,19 @@ export function useAuthSession({ notify, resolveError, onAfterLogout }) {
       persistSession(payload);
       loginForm.identifier = "";
       loginForm.password = "";
+      clearAuthFeedback("login");
       loginModalVisible.value = false;
       notify("登录成功", "success", "欢迎回来");
       await runPendingAction();
     } catch (error) {
+      const detail = error?.response?.data?.detail;
+      if (error?.response?.status === 401) {
+        authFeedback.login.form = "用户名/邮箱或密码错误，请重新输入。";
+        authFeedback.login.fields.identifier = "请检查账号";
+        authFeedback.login.fields.password = "请检查密码";
+      } else if (!applyRequestValidation("login", detail)) {
+        authFeedback.login.form = resolveError(error, "登录失败，请稍后再试");
+      }
       notify(resolveError(error, "登录失败，请稍后再试"), "error", "登录失败");
     } finally {
       authLoading.value = false;
@@ -150,7 +263,9 @@ export function useAuthSession({ notify, resolveError, onAfterLogout }) {
 
   return {
     authLoading,
+    authFeedback,
     clearSession,
+    clearAuthFeedback,
     handleLogin,
     handleLogout,
     handleRegister,
