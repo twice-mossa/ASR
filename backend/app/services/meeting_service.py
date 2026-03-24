@@ -56,9 +56,19 @@ def _build_transcript(meeting: Meeting, segments: list[TranscriptSegment]) -> Tr
         language=meeting.language or "zh",
         text=meeting.transcript_text or "",
         segments=[
-            TranscriptSegmentSchema(start=float(segment.start), end=float(segment.end), text=str(segment.text))
+            TranscriptSegmentSchema(
+                start=float(segment.start),
+                end=float(segment.end),
+                text=str(segment.text),
+                speaker_label=str(segment.speaker_label) if segment.speaker_label else None,
+                speaker_confidence=(
+                    float(segment.speaker_confidence) if segment.speaker_confidence is not None else None
+                ),
+            )
             for segment in segments
         ],
+        speaker_diarization_status=meeting.diarization_status or "not_requested",
+        speaker_diarization_message=meeting.diarization_error_message or None,
     )
 
 
@@ -414,6 +424,8 @@ def reset_meeting_transcript(meeting_id: int, status_value: str = "transcribing"
 
         meeting.transcript_text = ""
         meeting.status = status_value
+        meeting.diarization_status = "pending" if settings.diarization_api_key else "not_requested"
+        meeting.diarization_error_message = ""
         meeting.error_message = ""
         db.execute(delete(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting_id))
         db.execute(delete(MeetingKnowledgePack).where(MeetingKnowledgePack.meeting_id == meeting_id))
@@ -439,6 +451,8 @@ def save_transcript_result(meeting_id: int, transcript: TranscriptResponse, stat
         meeting.language = transcript.language or meeting.language or "zh"
         meeting.transcript_text = transcript.text or ""
         meeting.status = status_value
+        meeting.diarization_status = transcript.speaker_diarization_status or "not_requested"
+        meeting.diarization_error_message = transcript.speaker_diarization_message or ""
         meeting.error_message = ""
 
         db.execute(delete(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting_id))
@@ -449,6 +463,8 @@ def save_transcript_result(meeting_id: int, transcript: TranscriptResponse, stat
                     start=float(segment.start),
                     end=float(segment.end),
                     text=segment.text,
+                    speaker_label=segment.speaker_label,
+                    speaker_confidence=segment.speaker_confidence,
                 )
             )
 
@@ -480,6 +496,8 @@ def save_partial_transcript_result(
         meeting.language = transcript.language or meeting.language or "zh"
         meeting.transcript_text = transcript.text or ""
         meeting.status = status_value
+        meeting.diarization_status = transcript.speaker_diarization_status or "not_requested"
+        meeting.diarization_error_message = transcript.speaker_diarization_message or ""
         meeting.error_message = ""
 
         db.execute(delete(TranscriptSegment).where(TranscriptSegment.meeting_id == meeting_id))
@@ -490,6 +508,8 @@ def save_partial_transcript_result(
                     start=float(segment.start),
                     end=float(segment.end),
                     text=segment.text,
+                    speaker_label=segment.speaker_label,
+                    speaker_confidence=segment.speaker_confidence,
                 )
             )
 

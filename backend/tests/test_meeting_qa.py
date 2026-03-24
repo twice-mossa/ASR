@@ -7,6 +7,10 @@ from unittest.mock import AsyncMock, patch
 _TEST_DIR = Path(tempfile.mkdtemp(prefix="asr-qa-test-"))
 os.environ["DATABASE_URL"] = f"sqlite:///{_TEST_DIR / 'meeting_qa_test.db'}"
 os.environ["UPLOAD_DIR"] = str(_TEST_DIR / "uploads")
+os.environ["DIARIZATION_PROVIDER"] = "speechmatics"
+os.environ["DIARIZATION_API_KEY"] = ""
+os.environ["DIARIZATION_BASE_URL"] = "https://eu1.asr.api.speechmatics.com/v2"
+os.environ["DIARIZATION_MODEL"] = ""
 os.environ["SMTP_HOST"] = "smtp.example.com"
 os.environ["SMTP_PORT"] = "587"
 os.environ["SMTP_USERNAME"] = "mailer"
@@ -15,14 +19,14 @@ os.environ["SMTP_FROM_EMAIL"] = "no-reply@example.com"
 os.environ["SMTP_FROM_NAME"] = "Audio Memo"
 os.environ["SMTP_USE_TLS"] = "false"
 os.environ["SUMMARY_EMAIL_AUTO_SEND"] = "false"
-os.environ["AI_RUNTIME_ENABLED"] = "false"
-os.environ["SUMMARY_ENGINE"] = "legacy"
+os.environ["AI_RUNTIME_ENABLED"] = "true"
+os.environ["SUMMARY_ENGINE"] = "langgraph"
 os.environ["QA_ENGINE"] = "legacy"
 
 from fastapi.testclient import TestClient
 from sqlalchemy import delete
 
-from app.core.database import Base, SessionLocal, engine
+from app.core.database import Base, SessionLocal, engine, init_database
 from app.main import app
 from app.models import Meeting, MeetingKnowledgePack, MeetingQARecord, MeetingSummary, MeetingSummaryEmailDelivery, TranscriptSegment, User
 from app.schemas.auth import UserProfile
@@ -36,6 +40,7 @@ from app.services.transcription_service import _job_cancel_flags, _meeting_job_i
 class MeetingQATestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        init_database()
         Base.metadata.create_all(bind=engine)
         cls.client = TestClient(app)
 
@@ -81,13 +86,35 @@ class MeetingQATestCase(unittest.TestCase):
                     language="zh",
                     status="transcribed",
                     transcript_text="张三负责上线准备，李四负责整理风险清单，下周一之前需要完成确认。",
+                    diarization_status="ready",
                 )
             )
             db.add_all(
                 [
-                    TranscriptSegment(meeting_id=self.meeting_id, start=0.0, end=8.0, text="张三负责上线准备。"),
-                    TranscriptSegment(meeting_id=self.meeting_id, start=8.0, end=18.0, text="李四负责整理风险清单。"),
-                    TranscriptSegment(meeting_id=self.meeting_id, start=18.0, end=28.0, text="下周一之前需要完成确认。"),
+                    TranscriptSegment(
+                        meeting_id=self.meeting_id,
+                        start=0.0,
+                        end=8.0,
+                        text="张三负责上线准备。",
+                        speaker_label="Speaker A",
+                        speaker_confidence=0.91,
+                    ),
+                    TranscriptSegment(
+                        meeting_id=self.meeting_id,
+                        start=8.0,
+                        end=18.0,
+                        text="李四负责整理风险清单。",
+                        speaker_label="Speaker B",
+                        speaker_confidence=0.88,
+                    ),
+                    TranscriptSegment(
+                        meeting_id=self.meeting_id,
+                        start=18.0,
+                        end=28.0,
+                        text="下周一之前需要完成确认。",
+                        speaker_label="Speaker B",
+                        speaker_confidence=0.88,
+                    ),
                 ]
             )
             db.add(
@@ -353,6 +380,18 @@ class MeetingQATestCase(unittest.TestCase):
         self.assertEqual(body["transcription_job"]["status"], "processing")
         self.assertEqual(body["transcription_job"]["completed_chunks"], 1)
         self.assertTrue(body["transcription_job"]["is_stoppable"])
+
+    def test_meeting_detail_includes_speaker_aware_transcript_segments(self):
+        response = self.client.get(
+            f"/api/meetings/{self.meeting_id}",
+            headers={"Authorization": f"Bearer {self.token}"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["transcript"]["speaker_diarization_status"], "ready")
+        self.assertEqual(body["transcript"]["segments"][0]["speaker_label"], "Speaker A")
+        self.assertEqual(body["transcript"]["segments"][1]["speaker_label"], "Speaker B")
 
     def test_can_delete_single_meeting(self):
         response = self.client.delete(
