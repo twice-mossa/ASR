@@ -1,14 +1,38 @@
 import asyncio
+import os
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from fastapi import HTTPException
 
+_TEST_DIR = Path(tempfile.mkdtemp(prefix="asr-transcription-test-"))
+os.environ["DATABASE_URL"] = f"sqlite:///{_TEST_DIR / 'transcription_test.db'}"
+os.environ["UPLOAD_DIR"] = str(_TEST_DIR / "uploads")
+os.environ["DIARIZATION_PROVIDER"] = "speechmatics"
+os.environ["DIARIZATION_API_KEY"] = ""
+os.environ["DIARIZATION_BASE_URL"] = "https://eu1.asr.api.speechmatics.com/v2"
+os.environ["DIARIZATION_MODEL"] = ""
+os.environ["SMTP_HOST"] = "smtp.example.com"
+os.environ["SMTP_PORT"] = "587"
+os.environ["SMTP_USERNAME"] = "mailer"
+os.environ["SMTP_PASSWORD"] = "secret"
+os.environ["SMTP_FROM_EMAIL"] = "no-reply@example.com"
+os.environ["SMTP_FROM_NAME"] = "Audio Memo"
+os.environ["SMTP_USE_TLS"] = "false"
+os.environ["SUMMARY_EMAIL_AUTO_SEND"] = "false"
+os.environ["AI_RUNTIME_ENABLED"] = "true"
+os.environ["SUMMARY_ENGINE"] = "langgraph"
+os.environ["QA_ENGINE"] = "legacy"
+
 from app.schemas.meeting import TranscriptResponse, TranscriptSegment
+from app.services.diarization_service import DiarizationResult, SpeakerTurn
 from app.services.transcription_service import (
     TranscriptJobStatusResponse,
     _TranscriptionStopped,
+    _merge_speaker_turns_into_segments,
     _job_cancel_flags,
     _meeting_job_index,
     _run_transcription_job,
@@ -119,6 +143,22 @@ class TranscriptionJobOrderingTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(_transcription_jobs[job_id].completed_chunks, 1)
         self.assertEqual(_transcription_jobs[job_id].total_chunks, 2)
 
+    def test_merge_speaker_turns_assigns_largest_overlap_and_inherits_neighbor(self):
+        segments = [
+            TranscriptSegment(start=0.0, end=2.0, text="第一句"),
+            TranscriptSegment(start=2.0, end=4.0, text="第二句"),
+            TranscriptSegment(start=10.0, end=11.0, text="第三句"),
+        ]
+        turns = [
+            SpeakerTurn(speaker_label="Speaker A", start=0.0, end=2.5, speaker_confidence=0.92),
+            SpeakerTurn(speaker_label="Speaker B", start=2.5, end=4.0, speaker_confidence=0.87),
+        ]
+
+        merged = _merge_speaker_turns_into_segments(segments, turns)
+
+        self.assertEqual([segment.speaker_label for segment in merged], ["Speaker A", "Speaker B", "Speaker B"])
+        self.assertAlmostEqual(merged[0].speaker_confidence or 0.0, 0.92, places=2)
+
     async def test_groq_request_retries_then_returns_response(self):
         responses = [
             OSError("EOF occurred in violation of protocol (_ssl.c:997)"),
@@ -189,6 +229,107 @@ class TranscriptionJobOrderingTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(_transcription_jobs[job_id].status, "stopped")
         update_status.assert_called_with(999, status_value="stopped", error_message="")
+
+    async def test_meeting_job_persists_speaker_labels_when_diarization_succeeds(self):
+        job_id = "job-diarization-success"
+        transcript = TranscriptResponse(
+            filename="demo.wav",
+            language="zh",
+            text="第一句 第二句",
+            segments=[
+                TranscriptSegment(start=0.0, end=1.0, text="第一句"),
+                TranscriptSegment(start=1.0, end=2.0, text="第二句"),
+            ],
+        )
+
+        _store_job(
+            TranscriptJobStatusResponse(
+                job_id=job_id,
+                status="queued",
+                meeting_id=777,
+                filename="demo.wav",
+                language="zh",
+                text="",
+                segments=[],
+                total_chunks=1,
+                completed_chunks=0,
+                error=None,
+            )
+        )
+
+        saved_results = []
+
+        def fake_save(meeting_id, result):
+            saved_results.append((meeting_id, result))
+
+        with patch(
+            "app.services.transcription_service._transcribe_from_bytes",
+            new=AsyncMock(return_value=transcript),
+        ), patch(
+            "app.services.transcription_service.diarization_is_requested",
+            return_value=True,
+        ), patch(
+            "app.services.transcription_service.diarize_audio_with_provider",
+            new=AsyncMock(
+                return_value=DiarizationResult(
+                    status="ready",
+                    turns=[
+                        SpeakerTurn("Speaker A", 0.0, 1.0, 0.9),
+                        SpeakerTurn("Speaker B", 1.0, 2.0, 0.8),
+                    ],
+                )
+            ),
+        ), patch("app.services.transcription_service.save_transcript_result", side_effect=fake_save):
+            await _run_transcription_job(job_id, "demo.wav", b"audio", "audio/wav", meeting_id=777)
+
+        self.assertEqual(saved_results[0][0], 777)
+        self.assertEqual([segment.speaker_label for segment in saved_results[0][1].segments], ["Speaker A", "Speaker B"])
+        self.assertEqual(saved_results[0][1].speaker_diarization_status, "ready")
+
+    async def test_meeting_job_still_completes_when_diarization_fails(self):
+        job_id = "job-diarization-failed"
+        transcript = TranscriptResponse(
+            filename="demo.wav",
+            language="zh",
+            text="第一句",
+            segments=[TranscriptSegment(start=0.0, end=1.0, text="第一句")],
+        )
+
+        _store_job(
+            TranscriptJobStatusResponse(
+                job_id=job_id,
+                status="queued",
+                meeting_id=778,
+                filename="demo.wav",
+                language="zh",
+                text="",
+                segments=[],
+                total_chunks=1,
+                completed_chunks=0,
+                error=None,
+            )
+        )
+
+        saved_results = []
+
+        def fake_save(meeting_id, result):
+            saved_results.append(result)
+
+        with patch(
+            "app.services.transcription_service._transcribe_from_bytes",
+            new=AsyncMock(return_value=transcript),
+        ), patch(
+            "app.services.transcription_service.diarization_is_requested",
+            return_value=True,
+        ), patch(
+            "app.services.transcription_service.diarize_audio_with_provider",
+            new=AsyncMock(side_effect=RuntimeError("boom")),
+        ), patch("app.services.transcription_service.save_transcript_result", side_effect=fake_save):
+            await _run_transcription_job(job_id, "demo.wav", b"audio", "audio/wav", meeting_id=778)
+
+        self.assertEqual(_transcription_jobs[job_id].status, "completed")
+        self.assertEqual(saved_results[0].speaker_diarization_status, "failed")
+        self.assertIsNone(saved_results[0].segments[0].speaker_label)
 
     async def test_large_wav_chunks_transcribe_concurrently_and_emit_in_order(self):
         from app.core.config import settings

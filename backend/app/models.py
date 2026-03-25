@@ -30,6 +30,8 @@ class Meeting(Base):
     language = Column(String(16), nullable=False, default="zh")
     status = Column(String(32), nullable=False, default="draft", index=True)
     transcript_text = Column(Text, nullable=False, default="")
+    diarization_status = Column(String(16), nullable=False, default="not_requested")
+    diarization_error_message = Column(Text, nullable=False, default="")
     error_message = Column(Text, nullable=False, default="")
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(
@@ -48,6 +50,8 @@ class TranscriptSegment(Base):
     start = Column(Float, nullable=False, default=0.0)
     end = Column(Float, nullable=False, default=0.0)
     text = Column(Text, nullable=False)
+    speaker_label = Column(String(64), nullable=True)
+    speaker_confidence = Column(Float, nullable=True)
 
 
 class MeetingSummary(Base):

@@ -20,6 +20,7 @@ from app.schemas.meeting import (
     TranscriptResponse,
     TranscriptSegment,
 )
+from app.services.diarization_service import SpeakerTurn, diarization_is_requested, diarize_audio_with_provider
 from app.services.meeting_service import (
     ensure_owned_meeting,
     get_meeting_audio_payload,
@@ -109,6 +110,12 @@ def _normalize_segments(raw_segments: list[dict] | None) -> list[TranscriptSegme
                 start=float(segment.get("start", 0.0) or 0.0),
                 end=float(segment.get("end", 0.0) or 0.0),
                 text=text,
+                speaker_label=segment.get("speaker_label"),
+                speaker_confidence=(
+                    float(segment["speaker_confidence"])
+                    if segment.get("speaker_confidence") is not None
+                    else None
+                ),
             )
         )
     return segments_out
@@ -120,6 +127,8 @@ def _build_transcript_response(
     language: str,
     segments: list[TranscriptSegment],
     text: str | None = None,
+    speaker_diarization_status: str = "not_requested",
+    speaker_diarization_message: str | None = None,
 ) -> TranscriptResponse:
     full_text = text if text is not None else " ".join(segment.text for segment in segments).strip()
     return TranscriptResponse(
@@ -127,6 +136,8 @@ def _build_transcript_response(
         language=language or "zh",
         text=full_text.strip(),
         segments=segments,
+        speaker_diarization_status=speaker_diarization_status,
+        speaker_diarization_message=speaker_diarization_message,
     )
 
 
@@ -225,6 +236,8 @@ def _set_partial_job_result(
         segments=result.segments,
         completed_chunks=completed_chunks,
         total_chunks=total_chunks,
+        speaker_diarization_status=result.speaker_diarization_status,
+        speaker_diarization_message=result.speaker_diarization_message,
         error=None,
     )
 
@@ -236,6 +249,7 @@ def _handle_partial_transcription_result(
     total_chunks: int,
     meeting_id: int | None = None,
 ) -> None:
+    result = _mark_pending_speaker_diarization(result)
     if meeting_id is not None:
         save_partial_transcript_result(meeting_id, result, status_value="transcribing")
     _set_partial_job_result(job_id, result, completed_chunks, total_chunks)
@@ -358,6 +372,12 @@ async def _run_transcription_job(
             ),
             should_stop=lambda: _is_stop_requested(job_id),
         )
+        result = await _apply_speaker_diarization(
+            filename=filename,
+            raw=raw,
+            content_type=content_type,
+            transcript=result,
+        )
         if meeting_id is not None:
             save_transcript_result(meeting_id, result)
         current_job = await get_transcription_job(job_id)
@@ -371,6 +391,8 @@ async def _run_transcription_job(
             segments=result.segments,
             completed_chunks=max(1, current_job.completed_chunks),
             total_chunks=max(1, current_job.total_chunks),
+            speaker_diarization_status=result.speaker_diarization_status,
+            speaker_diarization_message=result.speaker_diarization_message,
             error=None,
         )
         _clear_job_runtime(job_id, meeting_id)
@@ -382,6 +404,8 @@ async def _run_transcription_job(
             meeting_id=meeting_id,
             completed_chunks=current_job.completed_chunks,
             total_chunks=current_job.total_chunks,
+            speaker_diarization_status=current_job.speaker_diarization_status,
+            speaker_diarization_message=current_job.speaker_diarization_message,
             error=None,
         )
         if meeting_id is not None:
@@ -555,6 +579,143 @@ def _raise_if_stop_requested(should_stop: StopCheck | None = None) -> None:
         raise _TranscriptionStopped()
 
 
+def _mark_pending_speaker_diarization(transcript: TranscriptResponse) -> TranscriptResponse:
+    if not diarization_is_requested():
+        return transcript
+    return transcript.model_copy(
+        update={
+            "speaker_diarization_status": "pending",
+            "speaker_diarization_message": "转录完成后将补充分说话人结果。",
+        }
+    )
+
+
+async def _apply_speaker_diarization(
+    *,
+    filename: str,
+    raw: bytes,
+    content_type: str,
+    transcript: TranscriptResponse,
+) -> TranscriptResponse:
+    if not diarization_is_requested():
+        return transcript.model_copy(
+            update={
+                "speaker_diarization_status": "not_requested",
+                "speaker_diarization_message": None,
+            }
+        )
+
+    try:
+        diarization = await diarize_audio_with_provider(
+            filename=filename,
+            raw=raw,
+            content_type=content_type,
+            language=transcript.language or "zh",
+        )
+    except Exception as exc:
+        logger.warning("Speaker diarization failed for %s: %s", filename, exc)
+        return transcript.model_copy(
+            update={
+                "speaker_diarization_status": "failed",
+                "speaker_diarization_message": "已完成转录，但说话人区分未完成。",
+            }
+        )
+
+    if not diarization.turns:
+        return transcript.model_copy(
+            update={
+                "speaker_diarization_status": diarization.status or "failed",
+                "speaker_diarization_message": diarization.message or "已完成转录，但说话人区分未完成。",
+            }
+        )
+
+    merged_segments = _merge_speaker_turns_into_segments(transcript.segments, diarization.turns)
+    return transcript.model_copy(
+        update={
+            "segments": merged_segments,
+            "speaker_diarization_status": diarization.status or "ready",
+            "speaker_diarization_message": diarization.message,
+        }
+    )
+
+
+def _merge_speaker_turns_into_segments(
+    segments: list[TranscriptSegment],
+    speaker_turns: list[SpeakerTurn],
+) -> list[TranscriptSegment]:
+    if not segments or not speaker_turns:
+        return segments
+
+    merged: list[TranscriptSegment] = []
+    previous_speaker: str | None = None
+    previous_confidence: float | None = None
+    next_speakers = _next_known_speakers(segments, speaker_turns)
+
+    for index, segment in enumerate(segments):
+        winner = _pick_best_speaker_for_segment(segment, speaker_turns, previous_speaker)
+        speaker_label = winner[0] if winner else previous_speaker or next_speakers[index] or "Speaker Unknown"
+        speaker_confidence = winner[1] if winner else previous_confidence
+        merged.append(
+            segment.model_copy(
+                update={
+                    "speaker_label": speaker_label,
+                    "speaker_confidence": speaker_confidence,
+                }
+            )
+        )
+        previous_speaker = speaker_label
+        previous_confidence = speaker_confidence
+
+    return merged
+
+
+def _next_known_speakers(segments: list[TranscriptSegment], speaker_turns: list[SpeakerTurn]) -> list[str | None]:
+    next_speakers: list[str | None] = [None] * len(segments)
+    next_label: str | None = None
+    for index in range(len(segments) - 1, -1, -1):
+        segment = segments[index]
+        winner = _pick_best_speaker_for_segment(segment, speaker_turns, None)
+        if winner:
+            next_label = winner[0]
+        next_speakers[index] = next_label
+    return next_speakers
+
+
+def _pick_best_speaker_for_segment(
+    segment: TranscriptSegment,
+    speaker_turns: list[SpeakerTurn],
+    previous_speaker: str | None,
+) -> tuple[str, float | None] | None:
+    overlaps: dict[str, dict[str, float | None]] = {}
+    for turn in speaker_turns:
+        overlap = min(float(segment.end), float(turn.end)) - max(float(segment.start), float(turn.start))
+        if overlap <= 0:
+            continue
+        current = overlaps.setdefault(turn.speaker_label, {"overlap": 0.0, "confidence": turn.speaker_confidence})
+        current["overlap"] = float(current["overlap"] or 0.0) + overlap
+        if current["confidence"] is None and turn.speaker_confidence is not None:
+            current["confidence"] = turn.speaker_confidence
+
+    if not overlaps:
+        return None
+
+    ranked = sorted(
+        overlaps.items(),
+        key=lambda item: (float(item[1]["overlap"] or 0.0), float(item[1]["confidence"] or 0.0)),
+        reverse=True,
+    )
+    best_label, best_stats = ranked[0]
+    if len(ranked) > 1:
+        second_label, second_stats = ranked[1]
+        best_overlap = float(best_stats["overlap"] or 0.0)
+        second_overlap = float(second_stats["overlap"] or 0.0)
+        if abs(best_overlap - second_overlap) <= 0.2 and previous_speaker in {best_label, second_label}:
+            inherited = overlaps[previous_speaker]
+            return previous_speaker, inherited["confidence"]
+
+    return best_label, best_stats["confidence"]
+
+
 def _split_wav_bytes(raw: bytes, max_bytes: int) -> list[tuple[float, bytes]]:
     try:
         with sf.SoundFile(io.BytesIO(raw)) as reader:
@@ -662,6 +823,8 @@ async def _transcribe_large_wav_with_groq(
                             start=segment.start + ordered_offset,
                             end=segment.end + ordered_offset,
                             text=segment.text,
+                            speaker_label=segment.speaker_label,
+                            speaker_confidence=segment.speaker_confidence,
                         )
                     )
                 completed_in_order += 1
@@ -671,6 +834,10 @@ async def _transcribe_large_wav_with_groq(
                     filename=filename,
                     language=language,
                     segments=combined_segments.copy(),
+                    speaker_diarization_status="pending" if diarization_is_requested() else "not_requested",
+                    speaker_diarization_message=(
+                        "转录完成后将补充分说话人结果。" if diarization_is_requested() else None
+                    ),
                 )
                 if on_partial is not None:
                     on_partial(partial_result, completed_in_order, total_chunks)
@@ -686,6 +853,8 @@ async def _transcribe_large_wav_with_groq(
         filename=filename,
         language=language,
         segments=combined_segments,
+        speaker_diarization_status="pending" if diarization_is_requested() else "not_requested",
+        speaker_diarization_message="转录完成后将补充分说话人结果。" if diarization_is_requested() else None,
     )
 
 

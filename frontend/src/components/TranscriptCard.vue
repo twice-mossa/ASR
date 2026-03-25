@@ -21,6 +21,17 @@ const filteredSegments = computed(() => {
   }
   return segments.filter((segment) => String(segment.text || "").toLowerCase().includes(normalizedQuery));
 });
+
+const diarizationMessage = computed(() => {
+  const status = String(props.transcript.speaker_diarization_status || "not_requested");
+  if (status === "pending") {
+    return props.transcript.speaker_diarization_message || "转录完成后将补充分说话人结果。";
+  }
+  if (status === "failed") {
+    return props.transcript.speaker_diarization_message || "已完成转录，但说话人区分未完成。";
+  }
+  return "";
+});
 </script>
 
 <template>
@@ -34,6 +45,7 @@ const filteredSegments = computed(() => {
     </div>
 
     <div class="text-block">{{ transcript.text || "正在等待转录内容返回。" }}</div>
+    <p v-if="diarizationMessage" class="diarization-note">{{ diarizationMessage }}</p>
 
     <details v-if="transcript.segments?.length" class="segment-panel">
       <summary>查看时间分段（{{ transcript.segments.length }}）</summary>
@@ -49,7 +61,10 @@ const filteredSegments = computed(() => {
           type="button"
           @click="emit('seek', segment.start)"
         >
-          <strong>{{ formatTimestamp(segment.start) }} - {{ formatTimestamp(segment.end) }}</strong>
+          <strong>
+            <span v-if="segment.speaker_label" class="speaker-chip">{{ segment.speaker_label }}</span>
+            {{ formatTimestamp(segment.start) }} - {{ formatTimestamp(segment.end) }}
+          </strong>
           <span>{{ segment.text }}</span>
         </button>
       </div>
@@ -100,6 +115,12 @@ h4 {
   color: var(--text-main);
   line-height: 1.72;
   white-space: pre-wrap;
+}
+
+.diarization-note {
+  margin: 10px 0 0;
+  color: var(--text-soft);
+  font-size: 0.82rem;
 }
 
 .segment-panel {
@@ -154,8 +175,23 @@ h4 {
 }
 
 .segment-item strong {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
   color: var(--accent-strong);
   font-size: 0.8rem;
+}
+
+.speaker-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.12);
+  color: #1d4ed8;
+  font-size: 0.72rem;
+  font-weight: 600;
 }
 
 .segment-item span {

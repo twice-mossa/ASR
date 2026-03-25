@@ -5,6 +5,8 @@ class TranscriptSegment(BaseModel):
     start: float = Field(..., description="Segment start time in seconds")
     end: float = Field(..., description="Segment end time in seconds")
     text: str
+    speaker_label: str | None = None
+    speaker_confidence: float | None = None
 
 
 class TranscriptResponse(BaseModel):
@@ -12,6 +14,8 @@ class TranscriptResponse(BaseModel):
     language: str = "zh"
     text: str
     segments: list[TranscriptSegment]
+    speaker_diarization_status: str = "not_requested"
+    speaker_diarization_message: str | None = None
 
 
 class TranscriptJobCreateResponse(BaseModel):
@@ -32,6 +36,8 @@ class TranscriptJobStatusResponse(BaseModel):
     completed_chunks: int = 0
     is_stoppable: bool = False
     partial_available: bool = False
+    speaker_diarization_status: str = "not_requested"
+    speaker_diarization_message: str | None = None
     error: str | None = None
 
 
