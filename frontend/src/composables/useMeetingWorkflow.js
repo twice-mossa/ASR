@@ -290,13 +290,17 @@ export function useMeetingWorkflow({
       if (processingMessageId.value) {
         const processingText =
           status.status === "completed"
-            ? "转录完成，结果已经保存到当前会议。"
+            ? status.speaker_diarization_status === "pending"
+              ? "转录完成，正文已经可用了；说话人分离正在后台补充。"
+              : "转录完成，结果已经保存到当前会议。"
             : status.status === "stopped"
               ? "转录已停止，已保留当前识别出的内容。"
             : status.status === "stopping"
               ? "正在停止转录，当前已识别内容会保留。"
+            : status.processing_stage === "preparing"
+              ? "正在准备音频：分析时长、必要时切块并排队转写。"
             : status.total_chunks > 1
-              ? `正在按分段处理音频，已完成 ${status.completed_chunks || 0} / ${status.total_chunks || 1} 段，已识别内容会立即显示。`
+              ? `正在按分段并发处理音频，已完成 ${status.completed_chunks || 0} / ${status.total_chunks || 1} 段，已识别内容会立即显示。`
               : "正在处理音频内容，已识别内容会立即显示。";
         upsertMessage(processingMessageId.value, {
           text: processingText,

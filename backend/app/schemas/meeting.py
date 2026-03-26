@@ -34,6 +34,7 @@ class TranscriptJobStatusResponse(BaseModel):
     segments: list[TranscriptSegment] = Field(default_factory=list)
     total_chunks: int = 1
     completed_chunks: int = 0
+    processing_stage: str = "queued"
     is_stoppable: bool = False
     partial_available: bool = False
     speaker_diarization_status: str = "not_requested"
