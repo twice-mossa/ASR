@@ -20,6 +20,14 @@ defineProps({
     type: String,
     default: "",
   },
+  uploadStatus: {
+    type: String,
+    default: "idle",
+  },
+  uploadPercent: {
+    type: Number,
+    default: 0,
+  },
   progressCompleted: {
     type: Number,
     default: 0,
@@ -50,15 +58,43 @@ const emit = defineEmits(["toggle-sidebar", "request-login"]);
           <p class="description">{{ description }}</p>
         </div>
         <div
-          v-if="['queued', 'processing', 'transcribing', 'stopping'].includes(progressStatus) && progressTotal > 0"
+          v-if="['preparing', 'uploading'].includes(uploadStatus) || (['queued', 'processing', 'transcribing', 'stopping'].includes(progressStatus) && progressTotal > 0)"
           class="progress-strip"
         >
           <div class="progress-strip__meta">
-            <span>{{ progressStatus === "stopping" ? "正在停止" : "转录进度" }}</span>
-            <strong>{{ progressCompleted }} / {{ progressTotal }}</strong>
+            <span>
+              {{
+                uploadStatus === "preparing"
+                  ? "准备上传"
+                  : uploadStatus === "uploading"
+                    ? "上传进度"
+                    : progressStatus === "stopping"
+                      ? "正在停止"
+                      : "转录进度"
+              }}
+            </span>
+            <strong>
+              {{
+                uploadStatus === "preparing"
+                  ? "读取中"
+                  : uploadStatus === "uploading"
+                    ? `${uploadPercent}%`
+                    : `${progressCompleted} / ${progressTotal}`
+              }}
+            </strong>
           </div>
           <div class="progress-strip__bar">
-            <span :style="{ width: `${Math.min(100, Math.max(0, (progressCompleted / progressTotal) * 100))}%` }" />
+            <span
+              :style="{
+                width: `${
+                  uploadStatus === 'preparing'
+                    ? 8
+                    : uploadStatus === 'uploading'
+                      ? Math.min(100, Math.max(0, uploadPercent || 0))
+                      : Math.min(100, Math.max(0, (progressCompleted / progressTotal) * 100))
+                }%`,
+              }"
+            />
           </div>
         </div>
       </div>

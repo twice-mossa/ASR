@@ -191,11 +191,13 @@ docker compose ps
 
 ### 7.2 启动后端
 
+推荐使用 `conda` 的 `py310` 环境：
+
 在 [backend](/Users/admin/Desktop/ai-project/ASR/backend) 目录执行：
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
+conda activate py310
+cd backend
 pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
@@ -207,6 +209,8 @@ uvicorn app.main:app --reload
 - Swagger: `http://127.0.0.1:8000/docs`
 
 ### 7.3 启动前端
+
+前提：本机已安装 `Node.js`。
 
 在 [frontend](/Users/admin/Desktop/ai-project/ASR/frontend) 目录执行：
 

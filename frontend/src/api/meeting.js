@@ -13,7 +13,7 @@ function authHeaders(token) {
     : {};
 }
 
-export async function createMeetingRecord({ token, file, durationLabel }) {
+export async function createMeetingRecord({ token, file, durationLabel, onUploadProgress }) {
   const formData = new FormData();
   formData.append("filename", file.name);
   formData.append("duration_label", durationLabel || "--:--");
@@ -21,11 +21,46 @@ export async function createMeetingRecord({ token, file, durationLabel }) {
 
   const { data } = await apiClient.post("/meetings", formData, {
     timeout: 0,
+    onUploadProgress,
     headers: {
       ...authHeaders(token),
       "Content-Type": "multipart/form-data",
     },
   });
+  return data;
+}
+
+export async function initChunkedUpload({ token, payload }) {
+  const { data } = await apiClient.post("/uploads/init", payload, {
+    headers: authHeaders(token),
+  });
+  return data;
+}
+
+export async function uploadChunkPart({ token, uploadId, partNumber, chunk, onUploadProgress }) {
+  const formData = new FormData();
+  formData.append("file", chunk, chunk.name || `part-${partNumber}`);
+
+  const { data } = await apiClient.put(`/uploads/${uploadId}/parts/${partNumber}`, formData, {
+    timeout: 0,
+    onUploadProgress,
+    headers: {
+      ...authHeaders(token),
+      "Content-Type": "multipart/form-data",
+    },
+  });
+  return data;
+}
+
+export async function completeChunkedUpload({ token, uploadId }) {
+  const { data } = await apiClient.post(
+    `/uploads/${uploadId}/complete`,
+    {},
+    {
+      timeout: 0,
+      headers: authHeaders(token),
+    },
+  );
   return data;
 }
 

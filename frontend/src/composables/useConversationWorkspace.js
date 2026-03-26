@@ -221,6 +221,10 @@ export function useConversationWorkspace({ notify, resolveError }) {
     revokeAudioUrl();
     workspace.meetingId = meetingDetail.id;
     workspace.meetingStatus = meetingDetail.status || "draft";
+    workspace.uploadStatus = "idle";
+    workspace.uploadLoadedBytes = 0;
+    workspace.uploadTotalBytes = 0;
+    workspace.uploadPercent = 0;
     workspace.file = localFile;
     workspace.fileName = meetingDetail.filename || "";
     workspace.persistedAudioUrl = normalizeAudioUrl(meetingDetail.audio_url);
