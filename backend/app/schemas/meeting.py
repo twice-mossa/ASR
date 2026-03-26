@@ -113,6 +113,28 @@ class MeetingCreateRequest(BaseModel):
     duration_label: str = Field(default="--:--", max_length=32)
 
 
+class ChunkedUploadInitRequest(BaseModel):
+    filename: str = Field(..., min_length=1, max_length=255)
+    duration_label: str = Field(default="--:--", max_length=32)
+    file_size: int = Field(..., gt=0)
+    chunk_size: int = Field(..., gt=0)
+    total_chunks: int = Field(..., gt=0)
+    content_type: str = Field(default="application/octet-stream", max_length=128)
+
+
+class ChunkedUploadInitResponse(BaseModel):
+    upload_id: str
+    chunk_size: int
+    total_chunks: int
+
+
+class ChunkedUploadPartResponse(BaseModel):
+    upload_id: str
+    part_number: int
+    uploaded_parts: int
+    total_chunks: int
+
+
 class MeetingUpdateRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
 

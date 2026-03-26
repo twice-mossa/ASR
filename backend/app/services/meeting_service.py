@@ -220,31 +220,30 @@ def ensure_owned_meeting(meeting_id: int, current_user: UserProfile) -> Meeting:
         return meeting
 
 
-def create_meeting(payload: MeetingCreateRequest, file: UploadFile, current_user: UserProfile) -> MeetingDetailResponse:
-    filename = (payload.filename or file.filename or "").strip()
-    if not filename:
+def _create_meeting_record_from_saved_file(
+    *,
+    payload: MeetingCreateRequest,
+    filename: str,
+    stored_filename: str,
+    audio_path: Path,
+    content_type: str,
+    current_user: UserProfile,
+) -> MeetingDetailResponse:
+    normalized_filename = (payload.filename or filename or "").strip()
+    if not normalized_filename:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="缺少音频文件名")
 
-    upload_dir = Path(settings.upload_dir)
-    upload_dir.mkdir(parents=True, exist_ok=True)
-
-    unique_name = f"{uuid.uuid4().hex}{Path(filename).suffix.lower()}"
-    saved_path = upload_dir / unique_name
-
-    try:
-        with saved_path.open("wb") as target:
-            shutil.copyfileobj(file.file, target)
-    except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="保存音频文件失败") from exc
+    if not audio_path.exists():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="音频文件不存在")
 
     with _get_session() as db:
         meeting = Meeting(
             user_id=current_user.id,
-            title=Path(filename).stem or filename,
-            filename=filename,
-            stored_filename=unique_name,
-            audio_path=str(saved_path),
-            content_type=file.content_type or "application/octet-stream",
+            title=Path(normalized_filename).stem or normalized_filename,
+            filename=normalized_filename,
+            stored_filename=stored_filename,
+            audio_path=str(audio_path),
+            content_type=content_type or "application/octet-stream",
             duration_label=payload.duration_label or "--:--",
             language="zh",
             status="draft",
@@ -270,6 +269,33 @@ def create_meeting(payload: MeetingCreateRequest, file: UploadFile, current_user
             summary_email=_build_summary_email_status(None, current_user),
             knowledge_status="idle",
         )
+
+
+def create_meeting(payload: MeetingCreateRequest, file: UploadFile, current_user: UserProfile) -> MeetingDetailResponse:
+    filename = (payload.filename or file.filename or "").strip()
+    if not filename:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="缺少音频文件名")
+
+    upload_dir = Path(settings.upload_dir)
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    unique_name = f"{uuid.uuid4().hex}{Path(filename).suffix.lower()}"
+    saved_path = upload_dir / unique_name
+
+    try:
+        with saved_path.open("wb") as target:
+            shutil.copyfileobj(file.file, target)
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="保存音频文件失败") from exc
+
+    return _create_meeting_record_from_saved_file(
+        payload=payload,
+        filename=filename,
+        stored_filename=unique_name,
+        audio_path=saved_path,
+        content_type=file.content_type or "application/octet-stream",
+        current_user=current_user,
+    )
 
 
 def list_meetings(current_user: UserProfile, query: str = "") -> list[MeetingListItem]:

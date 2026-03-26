@@ -64,6 +64,10 @@ export function defaultWorkspaceState() {
   return {
     meetingId: null,
     meetingStatus: "idle",
+    uploadStatus: "idle",
+    uploadLoadedBytes: 0,
+    uploadTotalBytes: 0,
+    uploadPercent: 0,
     file: null,
     fileName: "",
     audioUrl: "",

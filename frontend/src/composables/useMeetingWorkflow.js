@@ -44,18 +44,30 @@ export function useMeetingWorkflow({
   let uploadRequestHandler = async () => {};
   const canUseTranscript = computed(() => ["transcribed", "summarized"].includes(workspace.meetingStatus));
 
-  const canGenerateSummary = computed(() => Boolean(workspace.meetingId && canUseTranscript.value) && !workLoading.transcribe);
+  const isUploading = computed(() => ["preparing", "uploading"].includes(workspace.uploadStatus));
+  const canGenerateSummary = computed(
+    () => Boolean(workspace.meetingId && canUseTranscript.value) && !workLoading.transcribe && !isUploading.value,
+  );
   const canAskQuestions = computed(
-    () => Boolean(workspace.meetingId && canUseTranscript.value) && !workLoading.transcribe && !workLoading.ask,
+    () => Boolean(workspace.meetingId && canUseTranscript.value) && !workLoading.transcribe && !workLoading.ask && !isUploading.value,
   );
   const canDownloadNotes = computed(() => Boolean(workspace.summary?.summary));
   const canStopTranscription = computed(() =>
     Boolean(workspace.transcriptionJob?.job_id) &&
-    ["queued", "processing", "stopping"].includes(workspace.transcriptionStatus),
+    ["queued", "processing", "stopping"].includes(workspace.transcriptionStatus) &&
+    !isUploading.value,
   );
   const statusLabel = computed(() => {
     if (!isAuthenticated.value) {
       return "访客模式";
+    }
+
+    if (workspace.uploadStatus === "preparing") {
+      return "准备上传";
+    }
+
+    if (workspace.uploadStatus === "uploading") {
+      return `上传中 ${workspace.uploadPercent || 0}%`;
     }
 
     if (workspace.transcriptionStatus === "stopping" || workLoading.stopTranscribe) {
@@ -110,7 +122,17 @@ export function useMeetingWorkflow({
     }
 
     if (!workspace.meetingId) {
-      return "上传音频后，系统会先创建可持久化的会议记录。";
+      return isUploading.value
+        ? "正在上传音频并创建会议记录，请稍候。"
+        : "上传音频后，系统会先创建可持久化的会议记录。";
+    }
+
+    if (workspace.uploadStatus === "preparing") {
+      return "正在读取音频信息并准备上传。";
+    }
+
+    if (workspace.uploadStatus === "uploading") {
+      return `正在上传音频文件，当前进度 ${workspace.uploadPercent || 0}%。`;
     }
 
     if (["queued", "processing", "transcribing", "stopping"].includes(workspace.transcriptionStatus)) {
@@ -128,6 +150,14 @@ export function useMeetingWorkflow({
     return "围绕当前会议继续提问，我会结合转写片段给出回答和引用依据。";
   });
   const headerDescription = computed(() => {
+    if (workspace.uploadStatus === "preparing") {
+      return "正在读取音频时长并准备上传，会议记录会在上传完成后自动创建。";
+    }
+
+    if (workspace.uploadStatus === "uploading") {
+      return `${workspace.fileName || "当前音频"} · 正在上传并创建会议记录，进度 ${workspace.uploadPercent || 0}%`;
+    }
+
     if (!workspace.fileName) {
       return "历史会议保留在左侧，当前工作区展示真实持久化的音频、转录和纪要结果。";
     }
