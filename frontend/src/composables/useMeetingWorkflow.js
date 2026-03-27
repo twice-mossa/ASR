@@ -162,6 +162,12 @@ export function useMeetingWorkflow({
       return "历史会议保留在左侧，当前工作区展示真实持久化的音频、转录和纪要结果。";
     }
 
+    if (workspace.uploading) {
+      const percent = Number.isFinite(workspace.uploadProgress) ? workspace.uploadProgress : 0;
+      const chunkSuffix = workspace.uploadTotalChunks > 0 ? `，第 ${workspace.uploadChunkIndex || 0}/${workspace.uploadTotalChunks} 块` : "";
+      return `${workspace.fileName} · 正在上传到服务器（${percent}%${chunkSuffix}）`;
+    }
+
     const stateText =
       workspace.transcriptionStatus === "summarized"
         ? "摘要已生成，可继续追问会议细节"
@@ -320,13 +326,17 @@ export function useMeetingWorkflow({
       if (processingMessageId.value) {
         const processingText =
           status.status === "completed"
-            ? "转录完成，结果已经保存到当前会议。"
+            ? status.speaker_diarization_status === "pending"
+              ? "转录完成，正文已经可用了；说话人分离正在后台补充。"
+              : "转录完成，结果已经保存到当前会议。"
             : status.status === "stopped"
               ? "转录已停止，已保留当前识别出的内容。"
             : status.status === "stopping"
               ? "正在停止转录，当前已识别内容会保留。"
+            : status.processing_stage === "preparing"
+              ? "正在准备音频：分析时长、必要时切块并排队转写。"
             : status.total_chunks > 1
-              ? `正在按分段处理音频，已完成 ${status.completed_chunks || 0} / ${status.total_chunks || 1} 段，已识别内容会立即显示。`
+              ? `正在按分段并发处理音频，已完成 ${status.completed_chunks || 0} / ${status.total_chunks || 1} 段，已识别内容会立即显示。`
               : "正在处理音频内容，已识别内容会立即显示。";
         upsertMessage(processingMessageId.value, {
           text: processingText,

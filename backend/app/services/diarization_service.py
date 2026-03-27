@@ -10,7 +10,7 @@ import httpx
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
-_SPEECHMATICS_TIMEOUT = httpx.Timeout(connect=20.0, read=120.0, write=120.0, pool=20.0)
+_SPEECHMATICS_TIMEOUT = httpx.Timeout(connect=30.0, read=600.0, write=600.0, pool=30.0)
 
 
 @dataclass(slots=True)
@@ -81,13 +81,35 @@ async def _diarize_with_speechmatics(
         config["transcription_config"]["model"] = settings.diarization_model
 
     async with httpx.AsyncClient(timeout=_SPEECHMATICS_TIMEOUT) as client:
-        submit_response = await client.post(
-            f"{base_url}/jobs",
-            headers=headers,
-            files={"data_file": (filename, raw, content_type)},
-            data={"config": json.dumps(config, ensure_ascii=False)},
-        )
-        submit_response.raise_for_status()
+        try:
+            logger.info(
+                "Submitting Speechmatics diarization job: filename=%s content_type=%s size_mb=%.2f language=%s",
+                filename,
+                content_type,
+                len(raw) / 1024 / 1024,
+                provider_language,
+            )
+            submit_response = await client.post(
+                f"{base_url}/jobs",
+                headers=headers,
+                files={"data_file": (filename, raw, content_type)},
+                data={"config": json.dumps(config, ensure_ascii=False)},
+            )
+            if submit_response.status_code >= 400:
+                logger.error(
+                    "Speechmatics submit non-2xx: status=%s body=%s",
+                    submit_response.status_code,
+                    submit_response.text,
+                )
+            submit_response.raise_for_status()
+        except Exception as exc:
+            logger.exception(
+                "Speechmatics submit failed: filename=%s content_type=%s size_mb=%.2f",
+                filename,
+                content_type,
+                len(raw) / 1024 / 1024,
+            )
+            raise
         submit_payload = submit_response.json()
         job = submit_payload.get("job") if isinstance(submit_payload, dict) else None
         job_id = (
@@ -98,6 +120,7 @@ async def _diarize_with_speechmatics(
         if not job_id:
             raise RuntimeError("Speechmatics did not return a job id.")
 
+        logger.info("Speechmatics diarization job accepted: job_id=%s filename=%s", job_id, filename)
         transcript_payload = await _wait_for_speechmatics_transcript(
             client=client,
             base_url=base_url,
@@ -107,6 +130,11 @@ async def _diarize_with_speechmatics(
 
     turns = _extract_speaker_turns(transcript_payload)
     if not turns:
+        logger.warning(
+            "Speechmatics transcript returned no speaker turns: filename=%s payload=%s",
+            filename,
+            transcript_payload,
+        )
         return DiarizationResult(
             status="failed",
             turns=[],
@@ -129,6 +157,7 @@ async def _wait_for_speechmatics_transcript(
         status_response = await client.get(f"{base_url}/jobs/{job_id}", headers=headers)
         status_response.raise_for_status()
         payload = status_response.json()
+        logger.info("Speechmatics diarization poll: job_id=%s attempt=%s payload=%s", job_id, attempt + 1, payload)
         job = payload.get("job") if isinstance(payload, dict) else {}
         status_value = str((job or {}).get("status") or "").lower()
         if status_value == "done":

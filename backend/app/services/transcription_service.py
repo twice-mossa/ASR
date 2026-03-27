@@ -4,10 +4,12 @@ import asyncio
 import io
 import logging
 import os
+import subprocess
 import tempfile
 import threading
 import uuid
 from collections.abc import Callable
+from pathlib import Path
 
 import httpx
 import soundfile as sf
@@ -226,6 +228,7 @@ def _set_partial_job_result(
     result: TranscriptResponse,
     completed_chunks: int,
     total_chunks: int,
+    processing_stage: str = "transcribing",
 ) -> None:
     _update_job(
         job_id,
@@ -236,6 +239,7 @@ def _set_partial_job_result(
         segments=result.segments,
         completed_chunks=completed_chunks,
         total_chunks=total_chunks,
+        processing_stage=processing_stage,
         speaker_diarization_status=result.speaker_diarization_status,
         speaker_diarization_message=result.speaker_diarization_message,
         error=None,
@@ -249,10 +253,9 @@ def _handle_partial_transcription_result(
     total_chunks: int,
     meeting_id: int | None = None,
 ) -> None:
-    result = _mark_pending_speaker_diarization(result)
     if meeting_id is not None:
         save_partial_transcript_result(meeting_id, result, status_value="transcribing")
-    _set_partial_job_result(job_id, result, completed_chunks, total_chunks)
+    _set_partial_job_result(job_id, result, completed_chunks, total_chunks, processing_stage="transcribing")
 
 
 async def stop_transcription_job(job_id: str, current_user) -> TranscriptJobStatusResponse:
@@ -305,6 +308,7 @@ async def start_transcription_job(file: UploadFile) -> TranscriptJobCreateRespon
             segments=[],
             total_chunks=1,
             completed_chunks=0,
+            processing_stage="queued",
             error=None,
         )
     )
@@ -333,6 +337,7 @@ async def start_transcription_job_for_meeting(meeting_id: int, current_user) -> 
             segments=[],
             total_chunks=1,
             completed_chunks=0,
+            processing_stage="queued",
             is_stoppable=True,
             partial_available=False,
             error=None,
@@ -357,7 +362,7 @@ async def _run_transcription_job(
     content_type: str,
     meeting_id: int | None = None,
 ) -> None:
-    _update_job(job_id, status="processing")
+    _update_job(job_id, status="processing", processing_stage="preparing")
     try:
         result = await _transcribe_from_bytes(
             filename=filename,
@@ -391,6 +396,7 @@ async def _run_transcription_job(
             segments=result.segments,
             completed_chunks=max(1, current_job.completed_chunks),
             total_chunks=max(1, current_job.total_chunks),
+            processing_stage="completed",
             speaker_diarization_status=result.speaker_diarization_status,
             speaker_diarization_message=result.speaker_diarization_message,
             error=None,
@@ -404,6 +410,7 @@ async def _run_transcription_job(
             meeting_id=meeting_id,
             completed_chunks=current_job.completed_chunks,
             total_chunks=current_job.total_chunks,
+            processing_stage="stopped",
             speaker_diarization_status=current_job.speaker_diarization_status,
             speaker_diarization_message=current_job.speaker_diarization_message,
             error=None,
@@ -412,13 +419,13 @@ async def _run_transcription_job(
             update_meeting_status(meeting_id, status_value="stopped", error_message="")
         _clear_job_runtime(job_id, meeting_id)
     except HTTPException as exc:
-        _update_job(job_id, status="failed", error=str(exc.detail))
+        _update_job(job_id, status="failed", processing_stage="failed", error=str(exc.detail))
         if meeting_id is not None:
             update_meeting_status(meeting_id, status_value="failed", error_message=str(exc.detail))
         _clear_job_runtime(job_id, meeting_id)
     except Exception as exc:
         logger.exception("Unexpected transcription job failure: %s", exc)
-        _update_job(job_id, status="failed", error=str(exc))
+        _update_job(job_id, status="failed", processing_stage="failed", error=str(exc))
         if meeting_id is not None:
             update_meeting_status(meeting_id, status_value="failed", error_message=str(exc))
         _clear_job_runtime(job_id, meeting_id)
@@ -457,21 +464,15 @@ async def _transcribe_with_groq(
     should_stop: StopCheck | None = None,
 ) -> TranscriptResponse:
     max_bytes = settings.groq_max_upload_mb * 1024 * 1024
-    suffix = os.path.splitext(filename)[1].lower()
+    duration_seconds = await asyncio.to_thread(_probe_audio_duration_seconds, filename, raw)
+    long_audio_threshold = max(1, settings.groq_chunk_long_audio_minutes or 12) * 60
+    should_chunk = len(raw) > max_bytes or (duration_seconds is not None and duration_seconds >= long_audio_threshold)
 
-    if len(raw) > max_bytes:
-        if suffix != ".wav":
-            raise HTTPException(
-                status_code=413,
-                detail=(
-                    f"Audio file is too large for Groq direct upload ({len(raw) / 1024 / 1024:.1f} MB). "
-                    "Please upload a smaller file, convert it to flac, or use wav so the backend can chunk it."
-                ),
-            )
-
-        return await _transcribe_large_wav_with_groq(
+    if should_chunk:
+        return await _transcribe_chunked_audio_with_groq(
             filename=filename,
             raw=raw,
+            content_type=content_type,
             max_bytes=max_bytes,
             on_partial=on_partial,
             should_stop=should_stop,
@@ -577,17 +578,6 @@ async def _send_groq_request_with_retry(*, filename: str, request_factory: Calla
 def _raise_if_stop_requested(should_stop: StopCheck | None = None) -> None:
     if should_stop is not None and should_stop():
         raise _TranscriptionStopped()
-
-
-def _mark_pending_speaker_diarization(transcript: TranscriptResponse) -> TranscriptResponse:
-    if not diarization_is_requested():
-        return transcript
-    return transcript.model_copy(
-        update={
-            "speaker_diarization_status": "pending",
-            "speaker_diarization_message": "转录完成后将补充分说话人结果。",
-        }
-    )
 
 
 async def _apply_speaker_diarization(
@@ -716,6 +706,39 @@ def _pick_best_speaker_for_segment(
     return best_label, best_stats["confidence"]
 
 
+def _probe_audio_duration_seconds(filename: str, raw: bytes) -> float | None:
+    suffix = Path(filename).suffix or ".bin"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(raw)
+        tmp_path = tmp.name
+
+    try:
+        command = [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            tmp_path,
+        ]
+        completed = subprocess.run(command, capture_output=True, text=True, check=False)
+        if completed.returncode != 0:
+            logger.warning("ffprobe duration probe failed for %s: %s", filename, completed.stderr.strip())
+            return None
+        value = (completed.stdout or "").strip()
+        return float(value) if value else None
+    except Exception as exc:
+        logger.warning("ffprobe duration probe failed for %s: %s", filename, exc)
+        return None
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+
+
 def _split_wav_bytes(raw: bytes, max_bytes: int) -> list[tuple[float, bytes]]:
     try:
         with sf.SoundFile(io.BytesIO(raw)) as reader:
@@ -761,16 +784,91 @@ def _split_wav_bytes(raw: bytes, max_bytes: int) -> list[tuple[float, bytes]]:
     return chunks
 
 
-async def _transcribe_large_wav_with_groq(
+def _chunk_audio_with_ffmpeg(
     *,
     filename: str,
     raw: bytes,
+    content_type: str,
+    max_bytes: int,
+) -> list[tuple[float, bytes]]:
+    suffix = Path(filename).suffix or ".bin"
+    target_seconds = max(60, (settings.groq_chunk_target_minutes or 8) * 60)
+
+    with tempfile.TemporaryDirectory(prefix="asr-chunks-") as tmpdir:
+        input_path = Path(tmpdir) / f"input{suffix}"
+        input_path.write_bytes(raw)
+        output_pattern = str(Path(tmpdir) / "chunk_%03d.wav")
+
+        command = [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-i",
+            str(input_path),
+            "-vn",
+            "-ac",
+            "1",
+            "-ar",
+            "16000",
+            "-c:a",
+            "pcm_s16le",
+            "-f",
+            "segment",
+            "-segment_time",
+            str(target_seconds),
+            output_pattern,
+        ]
+        completed = subprocess.run(command, capture_output=True, text=True, check=False)
+        if completed.returncode != 0:
+            raise HTTPException(status_code=400, detail=f"音频切块失败: {completed.stderr.strip() or 'ffmpeg failed'}")
+
+        chunk_paths = sorted(Path(tmpdir).glob("chunk_*.wav"))
+        if not chunk_paths:
+            raise HTTPException(status_code=400, detail="音频切块失败：未生成任何分段")
+
+        chunks: list[tuple[float, bytes]] = []
+        current_offset = 0.0
+        for chunk_path in chunk_paths:
+            chunk_raw = chunk_path.read_bytes()
+            if len(chunk_raw) > max_bytes:
+                raise HTTPException(
+                    status_code=413,
+                    detail=(
+                        f"切块后的音频仍超过 Groq 限制（{len(chunk_raw) / 1024 / 1024:.1f} MB）。"
+                        "请缩短音频时长或进一步压缩音频。"
+                    ),
+                )
+            duration = _probe_audio_duration_seconds(chunk_path.name, chunk_raw) or 0.0
+            chunks.append((current_offset, chunk_raw))
+            current_offset += duration
+
+        return chunks
+
+
+async def _transcribe_chunked_audio_with_groq(
+    *,
+    filename: str,
+    raw: bytes,
+    content_type: str,
     max_bytes: int,
     on_partial: PartialCallback | None = None,
     should_stop: StopCheck | None = None,
 ) -> TranscriptResponse:
-    chunks = await asyncio.to_thread(_split_wav_bytes, raw, max_bytes)
-    logger.info("Chunking large WAV for Groq transcription: %s chunks", len(chunks))
+    suffix = os.path.splitext(filename)[1].lower()
+    if suffix == ".wav" and len(raw) > max_bytes:
+        chunks = await asyncio.to_thread(_split_wav_bytes, raw, max_bytes)
+        logger.info("Chunking large WAV for Groq transcription: %s chunks", len(chunks))
+    else:
+        chunks = await asyncio.to_thread(
+            _chunk_audio_with_ffmpeg,
+            filename=filename,
+            raw=raw,
+            content_type=content_type,
+            max_bytes=max_bytes,
+        )
+        logger.info("Chunking audio with ffmpeg for Groq transcription: %s chunks", len(chunks))
 
     language = "zh"
     total_chunks = len(chunks)

@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     groq_transcription_model: str = "whisper-large-v3"
     groq_max_upload_mb: int = 24
     groq_chunk_concurrency: int = 3
+    groq_chunk_target_minutes: int = 8
+    groq_chunk_long_audio_minutes: int = 12
     diarization_provider: str = "speechmatics"
     diarization_api_key: str = ""
     diarization_base_url: str = "https://eu1.asr.api.speechmatics.com/v2"

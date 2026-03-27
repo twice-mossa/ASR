@@ -176,6 +176,11 @@ export function useAudioFileContext({
       await applySelectedFile(file);
       notify("音频已加入当前工作台，并保存为新的会议记录。", "success", "上传成功");
     } catch (error) {
+      workspace.uploading = false;
+      workspace.uploadProgress = 0;
+      workspace.uploadChunkIndex = 0;
+      workspace.uploadTotalChunks = 0;
+      workspace.meetingStatus = "idle";
       notify(resolveError(error, "上传音频失败，请稍后再试。"), "error", "上传失败");
     }
   }

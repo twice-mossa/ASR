@@ -236,6 +236,25 @@ def _create_meeting_record_from_saved_file(
     if not audio_path.exists():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="音频文件不存在")
 
+    return _create_meeting_from_saved_audio(
+        filename=filename,
+        saved_path=saved_path,
+        stored_filename=unique_name,
+        content_type=file.content_type or "application/octet-stream",
+        duration_label=payload.duration_label or "--:--",
+        current_user=current_user,
+    )
+
+
+def _create_meeting_from_saved_audio(
+    *,
+    filename: str,
+    saved_path: Path,
+    stored_filename: str,
+    content_type: str,
+    duration_label: str,
+    current_user: UserProfile,
+) -> MeetingDetailResponse:
     with _get_session() as db:
         meeting = Meeting(
             user_id=current_user.id,
