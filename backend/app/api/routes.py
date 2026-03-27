@@ -4,6 +4,9 @@ from fastapi import APIRouter, File, Form, Header, Query, UploadFile
 
 from app.schemas.auth import AuthResponse, LoginRequest, LogoutResponse, RegisterRequest, UserProfile
 from app.schemas.meeting import (
+    ChunkedUploadInitRequest,
+    ChunkedUploadInitResponse,
+    ChunkedUploadPartResponse,
     MeetingAskRequest,
     MeetingAskResponse,
     MeetingCreateRequest,
@@ -40,6 +43,7 @@ from app.services.transcription_service import (
     start_transcription_job_for_meeting,
     transcribe_audio,
 )
+from app.services.upload_service import complete_chunked_upload, init_chunked_upload, upload_chunk_part
 
 router = APIRouter(prefix="/api")
 
@@ -128,47 +132,33 @@ async def create_meeting_record(
     )
 
 
-@router.post("/meetings/upload-sessions")
-def create_meeting_upload_session(
-    filename: str = Form(...),
-    duration_label: str = Form(default="--:--"),
-    content_type: str = Form(default="application/octet-stream"),
+@router.post("/uploads/init", response_model=ChunkedUploadInitResponse)
+def create_chunked_upload(
+    payload: ChunkedUploadInitRequest,
     authorization: str | None = Header(default=None),
-) -> dict[str, str | int]:
+) -> ChunkedUploadInitResponse:
     current_user = require_user_from_authorization(authorization)
-    return start_upload_session(
-        filename=filename,
-        duration_label=duration_label,
-        content_type=content_type,
-        current_user=current_user,
-    )
+    return init_chunked_upload(payload, current_user)
 
 
-@router.post("/meetings/upload-sessions/{upload_id}/chunks")
-def upload_meeting_file_chunk(
+@router.put("/uploads/{upload_id}/parts/{part_number}", response_model=ChunkedUploadPartResponse)
+async def upload_chunked_part(
     upload_id: str,
-    chunk_index: int = Form(...),
-    total_chunks: int = Form(...),
+    part_number: int,
     file: UploadFile = File(...),
     authorization: str | None = Header(default=None),
-) -> dict[str, str | int | bool]:
+) -> ChunkedUploadPartResponse:
     current_user = require_user_from_authorization(authorization)
-    return upload_meeting_chunk(
-        upload_id=upload_id,
-        chunk_index=chunk_index,
-        total_chunks=total_chunks,
-        file=file,
-        current_user=current_user,
-    )
+    return await upload_chunk_part(upload_id, part_number, file, current_user)
 
 
-@router.post("/meetings/upload-sessions/{upload_id}/complete", response_model=MeetingDetailResponse)
-def complete_meeting_upload_session(
+@router.post("/uploads/{upload_id}/complete", response_model=MeetingDetailResponse)
+def finish_chunked_upload(
     upload_id: str,
     authorization: str | None = Header(default=None),
 ) -> MeetingDetailResponse:
     current_user = require_user_from_authorization(authorization)
-    return finalize_upload_session(upload_id=upload_id, current_user=current_user)
+    return complete_chunked_upload(upload_id, current_user)
 
 
 @router.get("/meetings", response_model=list[MeetingListItem])

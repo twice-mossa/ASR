@@ -19,7 +19,7 @@
 
 必需项：
 
-- 已安装 `Python 3.10+`
+- 已安装 `conda`，并准备好 `py310` 环境
 - 已安装 `Node.js`
 - 已安装 `Docker Desktop`
 
@@ -65,6 +65,7 @@ UPLOAD_DIR=./data/uploads
 
 ```powershell
 cd D:\ASR\backend
+conda activate py310
 python -m pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
@@ -76,6 +77,8 @@ uvicorn app.main:app --reload
 如果你刚改过 `.env`，一定要重启后端。
 
 ## 六、启动前端
+
+前提：本机已安装 `Node.js`。
 
 ```powershell
 cd D:\ASR\frontend

@@ -1,7 +1,9 @@
 import { ref } from "vue";
 
-import { createMeetingRecord } from "../api/meeting";
+import { completeChunkedUpload, initChunkedUpload, uploadChunkPart } from "../api/meeting";
 import { formatTime } from "../utils/workspace";
+
+const DEFAULT_CHUNK_SIZE = 5 * 1024 * 1024;
 
 export function useAudioFileContext({
   workspace,
@@ -15,6 +17,26 @@ export function useAudioFileContext({
   hydrateMeetings,
 }) {
   const fileInputRef = ref(null);
+
+  function resetUploadState() {
+    workspace.uploadStatus = "idle";
+    workspace.uploadLoadedBytes = 0;
+    workspace.uploadTotalBytes = 0;
+    workspace.uploadPercent = 0;
+  }
+
+  function updateUploadState(event) {
+    const loaded = Number(event?.loaded) || 0;
+    const total = Number(event?.total) || 0;
+    workspace.uploadStatus = "uploading";
+    workspace.uploadLoadedBytes = loaded;
+    workspace.uploadTotalBytes = total;
+    workspace.uploadPercent = total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : 0;
+  }
+
+  function updateUploadProgressByBytes(loaded, total) {
+    updateUploadState({ loaded, total });
+  }
 
   function openFilePicker() {
     const input = fileInputRef.value;
@@ -78,43 +100,58 @@ export function useAudioFileContext({
 
     onBeforeApplyFile?.();
     revokeAudioUrl();
-    workspace.uploading = true;
-    workspace.uploadProgress = 0;
-    workspace.uploadChunkIndex = 0;
-    workspace.uploadTotalChunks = 0;
-    workspace.fileName = file?.name || workspace.fileName;
-    workspace.meetingStatus = "uploading";
+    workspace.fileName = file?.name || "";
+    workspace.uploadStatus = "preparing";
+    workspace.uploadLoadedBytes = 0;
+    workspace.uploadTotalBytes = file?.size || 0;
+    workspace.uploadPercent = 0;
 
-    const durationPromise = file ? getAudioDurationLabel(file) : Promise.resolve("--:--");
-    const durationLabel = await Promise.race([
-      durationPromise,
-      new Promise((resolve) => window.setTimeout(() => resolve("--:--"), 1200)),
-    ]);
-
+    const durationLabel = file ? await getAudioDurationLabel(file) : "--:--";
     try {
-      const meetingDetail = await createMeetingRecord({
+      const chunkSize = Math.min(DEFAULT_CHUNK_SIZE, Math.max(1024 * 1024, file.size || DEFAULT_CHUNK_SIZE));
+      const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
+      const session = await initChunkedUpload({
         token,
-        file,
-        durationLabel,
-        onUploadProgress: (event) => {
-          const total = Number(event?.total) || 0;
-          const loaded = Number(event?.loaded) || 0;
-          workspace.uploadChunkIndex = Number(event?.chunkIndex) || workspace.uploadChunkIndex || 0;
-          workspace.uploadTotalChunks = Number(event?.totalChunks) || workspace.uploadTotalChunks || 0;
-          if (total > 0) {
-            const percent = (loaded / total) * 100;
-            workspace.uploadProgress = Math.max(0, Math.min(100, Number(percent.toFixed(percent < 10 ? 1 : 0))));
-          }
+        payload: {
+          filename: file.name,
+          duration_label: durationLabel,
+          file_size: file.size,
+          chunk_size: chunkSize,
+          total_chunks: totalChunks,
+          content_type: file.type || "application/octet-stream",
         },
       });
+      let uploadedBytes = 0;
 
-      workspace.uploadProgress = 100;
+      for (let index = 0; index < totalChunks; index += 1) {
+        const start = index * chunkSize;
+        const end = Math.min(file.size, start + chunkSize);
+        const chunk = file.slice(start, end);
+
+        await uploadChunkPart({
+          token,
+          uploadId: session.upload_id,
+          partNumber: index + 1,
+          chunk,
+          onUploadProgress(event) {
+            const chunkLoaded = Number(event?.loaded) || 0;
+            updateUploadProgressByBytes(uploadedBytes + chunkLoaded, file.size || 0);
+          },
+        });
+        uploadedBytes = end;
+        updateUploadProgressByBytes(uploadedBytes, file.size || 0);
+      }
+
+      const meetingDetail = await completeChunkedUpload({
+        token,
+        uploadId: session.upload_id,
+      });
+
       applyMeetingDetail(meetingDetail, file);
       await hydrateMeetings(token, meetingDetail.id);
-    } finally {
-      workspace.uploading = false;
-      workspace.uploadChunkIndex = 0;
-      workspace.uploadTotalChunks = 0;
+    } catch (error) {
+      resetUploadState();
+      throw error;
     }
   }
 

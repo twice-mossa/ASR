@@ -14,19 +14,10 @@ function authHeaders(token) {
 }
 
 export async function createMeetingRecord({ token, file, durationLabel, onUploadProgress }) {
-  const chunkSize = 2 * 1024 * 1024;
-  const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
-
-  const sessionForm = new FormData();
-  sessionForm.append("filename", file.name);
-  sessionForm.append("duration_label", durationLabel || "--:--");
-  sessionForm.append("content_type", file.type || "application/octet-stream");
-  const sessionResponse = await apiClient.post("/meetings/upload-sessions", sessionForm, {
-    timeout: 0,
-    headers: {
-      ...authHeaders(token),
-    },
-  });
+  const formData = new FormData();
+  formData.append("filename", file.name);
+  formData.append("duration_label", durationLabel || "--:--");
+  formData.append("file", file);
 
   const uploadId = sessionResponse.data.upload_id;
   for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
@@ -69,10 +60,45 @@ export async function createMeetingRecord({ token, file, durationLabel, onUpload
 
   const { data } = await apiClient.post(`/meetings/upload-sessions/${uploadId}/complete`, null, {
     timeout: 0,
+    onUploadProgress,
     headers: {
       ...authHeaders(token),
     },
   });
+  return data;
+}
+
+export async function initChunkedUpload({ token, payload }) {
+  const { data } = await apiClient.post("/uploads/init", payload, {
+    headers: authHeaders(token),
+  });
+  return data;
+}
+
+export async function uploadChunkPart({ token, uploadId, partNumber, chunk, onUploadProgress }) {
+  const formData = new FormData();
+  formData.append("file", chunk, chunk.name || `part-${partNumber}`);
+
+  const { data } = await apiClient.put(`/uploads/${uploadId}/parts/${partNumber}`, formData, {
+    timeout: 0,
+    onUploadProgress,
+    headers: {
+      ...authHeaders(token),
+      "Content-Type": "multipart/form-data",
+    },
+  });
+  return data;
+}
+
+export async function completeChunkedUpload({ token, uploadId }) {
+  const { data } = await apiClient.post(
+    `/uploads/${uploadId}/complete`,
+    {},
+    {
+      timeout: 0,
+      headers: authHeaders(token),
+    },
+  );
   return data;
 }
 

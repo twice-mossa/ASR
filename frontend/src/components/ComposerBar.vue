@@ -51,10 +51,22 @@ function handleKeydown(event) {
   <div class="composer-shell">
     <div class="composer-frame">
       <div class="composer-toolbar">
-        <button class="toolbar-button" @click="emit('upload')">
-          {{ workspace.fileName ? "更换音频" : "上传音频" }}
+        <button class="toolbar-button" :disabled="['preparing', 'uploading'].includes(workspace.uploadStatus)" @click="emit('upload')">
+          {{
+            workspace.uploadStatus === "preparing"
+              ? "准备上传..."
+              : workspace.uploadStatus === "uploading"
+                ? `上传中 ${workspace.uploadPercent || 0}%`
+                : workspace.fileName
+                  ? "更换音频"
+                  : "上传音频"
+          }}
         </button>
-        <button class="toolbar-button" :disabled="!workspace.fileName || workLoading.transcribe" @click="emit('transcribe')">
+        <button
+          class="toolbar-button"
+          :disabled="!workspace.fileName || workLoading.transcribe || ['preparing', 'uploading'].includes(workspace.uploadStatus)"
+          @click="emit('transcribe')"
+        >
           {{ workspace.transcriptionStatus === "stopped" ? "重新转录" : workLoading.transcribe ? "正在转录..." : "开始转录" }}
         </button>
         <button
@@ -70,6 +82,20 @@ function handleKeydown(event) {
         </button>
         <button class="toolbar-button" :disabled="!canDownloadNotes" @click="emit('download')">下载纪要</button>
         <span class="toolbar-tip">{{ authenticated ? "Cmd/Ctrl + Enter 发送" : "关键动作会在使用时提示登录" }}</span>
+      </div>
+
+      <div v-if="['preparing', 'uploading'].includes(workspace.uploadStatus)" class="upload-progress">
+        <div class="upload-progress__meta">
+          <span>{{ workspace.uploadStatus === "preparing" ? "正在准备音频" : "正在上传音频" }}</span>
+          <strong>{{ workspace.uploadStatus === "preparing" ? "读取中" : `${workspace.uploadPercent || 0}%` }}</strong>
+        </div>
+        <div class="upload-progress__bar">
+          <span
+            :style="{
+              width: `${workspace.uploadStatus === 'preparing' ? 8 : Math.min(100, Math.max(0, workspace.uploadPercent || 0))}%`,
+            }"
+          />
+        </div>
       </div>
 
       <div class="composer-box">
@@ -149,6 +175,43 @@ function handleKeydown(event) {
   border-radius: 16px;
   background: white;
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.035);
+}
+
+.upload-progress {
+  margin-bottom: 8px;
+  display: grid;
+  gap: 5px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.upload-progress__meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-soft);
+  font-size: 0.74rem;
+}
+
+.upload-progress__meta strong {
+  color: var(--text-strong);
+}
+
+.upload-progress__bar {
+  width: 100%;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.18);
+}
+
+.upload-progress__bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #0f766e, #2dd4bf);
 }
 
 .composer-input {
