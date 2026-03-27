@@ -58,6 +58,12 @@ export function useMeetingWorkflow({
       return "访客模式";
     }
 
+    if (workspace.uploading) {
+      const percent = Number.isFinite(workspace.uploadProgress) ? workspace.uploadProgress : 0;
+      const chunkSuffix = workspace.uploadTotalChunks > 0 ? ` · 第 ${workspace.uploadChunkIndex || 0}/${workspace.uploadTotalChunks} 块` : "";
+      return `上传中 ${percent}%${chunkSuffix}`;
+    }
+
     if (workspace.transcriptionStatus === "stopping" || workLoading.stopTranscribe) {
       return "正在停止";
     }
@@ -130,6 +136,12 @@ export function useMeetingWorkflow({
   const headerDescription = computed(() => {
     if (!workspace.fileName) {
       return "历史会议保留在左侧，当前工作区展示真实持久化的音频、转录和纪要结果。";
+    }
+
+    if (workspace.uploading) {
+      const percent = Number.isFinite(workspace.uploadProgress) ? workspace.uploadProgress : 0;
+      const chunkSuffix = workspace.uploadTotalChunks > 0 ? `，第 ${workspace.uploadChunkIndex || 0}/${workspace.uploadTotalChunks} 块` : "";
+      return `${workspace.fileName} · 正在上传到服务器（${percent}%${chunkSuffix}）`;
     }
 
     const stateText =

@@ -78,16 +78,44 @@ export function useAudioFileContext({
 
     onBeforeApplyFile?.();
     revokeAudioUrl();
+    workspace.uploading = true;
+    workspace.uploadProgress = 0;
+    workspace.uploadChunkIndex = 0;
+    workspace.uploadTotalChunks = 0;
+    workspace.fileName = file?.name || workspace.fileName;
+    workspace.meetingStatus = "uploading";
 
-    const durationLabel = file ? await getAudioDurationLabel(file) : "--:--";
-    const meetingDetail = await createMeetingRecord({
-      token,
-      file,
-      durationLabel,
-    });
+    const durationPromise = file ? getAudioDurationLabel(file) : Promise.resolve("--:--");
+    const durationLabel = await Promise.race([
+      durationPromise,
+      new Promise((resolve) => window.setTimeout(() => resolve("--:--"), 1200)),
+    ]);
 
-    applyMeetingDetail(meetingDetail, file);
-    await hydrateMeetings(token, meetingDetail.id);
+    try {
+      const meetingDetail = await createMeetingRecord({
+        token,
+        file,
+        durationLabel,
+        onUploadProgress: (event) => {
+          const total = Number(event?.total) || 0;
+          const loaded = Number(event?.loaded) || 0;
+          workspace.uploadChunkIndex = Number(event?.chunkIndex) || workspace.uploadChunkIndex || 0;
+          workspace.uploadTotalChunks = Number(event?.totalChunks) || workspace.uploadTotalChunks || 0;
+          if (total > 0) {
+            const percent = (loaded / total) * 100;
+            workspace.uploadProgress = Math.max(0, Math.min(100, Number(percent.toFixed(percent < 10 ? 1 : 0))));
+          }
+        },
+      });
+
+      workspace.uploadProgress = 100;
+      applyMeetingDetail(meetingDetail, file);
+      await hydrateMeetings(token, meetingDetail.id);
+    } finally {
+      workspace.uploading = false;
+      workspace.uploadChunkIndex = 0;
+      workspace.uploadTotalChunks = 0;
+    }
   }
 
   async function handleFileSelect(event) {
@@ -111,6 +139,11 @@ export function useAudioFileContext({
       await applySelectedFile(file);
       notify("音频已加入当前工作台，并保存为新的会议记录。", "success", "上传成功");
     } catch (error) {
+      workspace.uploading = false;
+      workspace.uploadProgress = 0;
+      workspace.uploadChunkIndex = 0;
+      workspace.uploadTotalChunks = 0;
+      workspace.meetingStatus = "idle";
       notify(resolveError(error, "上传音频失败，请稍后再试。"), "error", "上传失败");
     }
   }

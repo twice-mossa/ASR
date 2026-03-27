@@ -23,10 +23,13 @@ from app.services.meeting_service import (
     create_meeting,
     delete_all_meeting_records,
     delete_meeting_record,
+    finalize_upload_session,
     get_meeting_detail,
     list_meetings,
     require_user_from_authorization,
+    start_upload_session,
     update_meeting_record,
+    upload_meeting_chunk,
 )
 from app.services.minimax_service import build_summary, build_summary_for_meeting
 from app.services.qa_service import ask_meeting_question
@@ -123,6 +126,49 @@ async def create_meeting_record(
         file=file,
         current_user=current_user,
     )
+
+
+@router.post("/meetings/upload-sessions")
+def create_meeting_upload_session(
+    filename: str = Form(...),
+    duration_label: str = Form(default="--:--"),
+    content_type: str = Form(default="application/octet-stream"),
+    authorization: str | None = Header(default=None),
+) -> dict[str, str | int]:
+    current_user = require_user_from_authorization(authorization)
+    return start_upload_session(
+        filename=filename,
+        duration_label=duration_label,
+        content_type=content_type,
+        current_user=current_user,
+    )
+
+
+@router.post("/meetings/upload-sessions/{upload_id}/chunks")
+def upload_meeting_file_chunk(
+    upload_id: str,
+    chunk_index: int = Form(...),
+    total_chunks: int = Form(...),
+    file: UploadFile = File(...),
+    authorization: str | None = Header(default=None),
+) -> dict[str, str | int | bool]:
+    current_user = require_user_from_authorization(authorization)
+    return upload_meeting_chunk(
+        upload_id=upload_id,
+        chunk_index=chunk_index,
+        total_chunks=total_chunks,
+        file=file,
+        current_user=current_user,
+    )
+
+
+@router.post("/meetings/upload-sessions/{upload_id}/complete", response_model=MeetingDetailResponse)
+def complete_meeting_upload_session(
+    upload_id: str,
+    authorization: str | None = Header(default=None),
+) -> MeetingDetailResponse:
+    current_user = require_user_from_authorization(authorization)
+    return finalize_upload_session(upload_id=upload_id, current_user=current_user)
 
 
 @router.get("/meetings", response_model=list[MeetingListItem])

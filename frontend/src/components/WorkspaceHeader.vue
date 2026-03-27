@@ -50,15 +50,15 @@ const emit = defineEmits(["toggle-sidebar", "request-login"]);
           <p class="description">{{ description }}</p>
         </div>
         <div
-          v-if="['queued', 'processing', 'transcribing', 'stopping'].includes(progressStatus) && progressTotal > 0"
+          v-if="['queued', 'processing', 'transcribing', 'stopping', 'uploading'].includes(progressStatus) && progressTotal > 0"
           class="progress-strip"
         >
           <div class="progress-strip__meta">
-            <span>{{ progressStatus === "stopping" ? "正在停止" : "转录进度" }}</span>
-            <strong>{{ progressCompleted }} / {{ progressTotal }}</strong>
+            <span>{{ progressStatus === "stopping" ? "正在停止" : progressStatus === "uploading" ? "上传进度" : "转录进度" }}</span>
+            <strong>{{ progressStatus === "uploading" ? `${progressCompleted}%` : `${progressCompleted} / ${progressTotal}` }}</strong>
           </div>
           <div class="progress-strip__bar">
-            <span :style="{ width: `${Math.min(100, Math.max(0, (progressCompleted / progressTotal) * 100))}%` }" />
+            <span :style="{ width: `${progressStatus === 'uploading' ? Math.min(100, Math.max(0, progressCompleted)) : Math.min(100, Math.max(0, (progressCompleted / progressTotal) * 100))}%` }" />
           </div>
         </div>
       </div>

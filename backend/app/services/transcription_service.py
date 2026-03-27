@@ -253,7 +253,6 @@ def _handle_partial_transcription_result(
     total_chunks: int,
     meeting_id: int | None = None,
 ) -> None:
-    result = _mark_pending_speaker_diarization(result)
     if meeting_id is not None:
         save_partial_transcript_result(meeting_id, result, status_value="transcribing")
     _set_partial_job_result(job_id, result, completed_chunks, total_chunks, processing_stage="transcribing")
@@ -378,7 +377,12 @@ async def _run_transcription_job(
             ),
             should_stop=lambda: _is_stop_requested(job_id),
         )
-        result = _mark_pending_speaker_diarization(result)
+        result = await _apply_speaker_diarization(
+            filename=filename,
+            raw=raw,
+            content_type=content_type,
+            transcript=result,
+        )
         if meeting_id is not None:
             save_transcript_result(meeting_id, result)
         current_job = await get_transcription_job(job_id)
@@ -398,14 +402,6 @@ async def _run_transcription_job(
             error=None,
         )
         _clear_job_runtime(job_id, meeting_id)
-        if diarization_is_requested():
-            _start_background_diarization(
-                filename=filename,
-                raw=raw,
-                content_type=content_type,
-                transcript=result,
-                meeting_id=meeting_id,
-            )
     except _TranscriptionStopped:
         current_job = await get_transcription_job(job_id)
         _update_job(
@@ -582,50 +578,6 @@ async def _send_groq_request_with_retry(*, filename: str, request_factory: Calla
 def _raise_if_stop_requested(should_stop: StopCheck | None = None) -> None:
     if should_stop is not None and should_stop():
         raise _TranscriptionStopped()
-
-
-def _mark_pending_speaker_diarization(transcript: TranscriptResponse) -> TranscriptResponse:
-    if not diarization_is_requested():
-        return transcript
-    return transcript.model_copy(
-        update={
-            "speaker_diarization_status": "pending",
-            "speaker_diarization_message": "转录完成后将补充分说话人结果。",
-        }
-    )
-
-
-def _start_background_diarization(
-    *,
-    filename: str,
-    raw: bytes,
-    content_type: str,
-    transcript: TranscriptResponse,
-    meeting_id: int | None = None,
-) -> None:
-    if meeting_id is None or not diarization_is_requested():
-        return
-
-    async def _run() -> None:
-        result = await _apply_speaker_diarization(
-            filename=filename,
-            raw=raw,
-            content_type=content_type,
-            transcript=transcript,
-        )
-        save_transcript_result(meeting_id, result)
-
-    def _target() -> None:
-        try:
-            asyncio.run(_run())
-        except Exception as exc:
-            logger.warning("Background diarization failed for meeting %s: %s", meeting_id, exc)
-
-    threading.Thread(
-        target=_target,
-        name=f"diarization-job-{meeting_id}",
-        daemon=True,
-    ).start()
 
 
 async def _apply_speaker_diarization(

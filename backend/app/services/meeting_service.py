@@ -237,15 +237,34 @@ def create_meeting(payload: MeetingCreateRequest, file: UploadFile, current_user
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="保存音频文件失败") from exc
 
+    return _create_meeting_from_saved_audio(
+        filename=filename,
+        saved_path=saved_path,
+        stored_filename=unique_name,
+        content_type=file.content_type or "application/octet-stream",
+        duration_label=payload.duration_label or "--:--",
+        current_user=current_user,
+    )
+
+
+def _create_meeting_from_saved_audio(
+    *,
+    filename: str,
+    saved_path: Path,
+    stored_filename: str,
+    content_type: str,
+    duration_label: str,
+    current_user: UserProfile,
+) -> MeetingDetailResponse:
     with _get_session() as db:
         meeting = Meeting(
             user_id=current_user.id,
             title=Path(filename).stem or filename,
             filename=filename,
-            stored_filename=unique_name,
+            stored_filename=stored_filename,
             audio_path=str(saved_path),
-            content_type=file.content_type or "application/octet-stream",
-            duration_label=payload.duration_label or "--:--",
+            content_type=content_type or "application/octet-stream",
+            duration_label=duration_label or "--:--",
             language="zh",
             status="draft",
         )
@@ -270,6 +289,109 @@ def create_meeting(payload: MeetingCreateRequest, file: UploadFile, current_user
             summary_email=_build_summary_email_status(None, current_user),
             knowledge_status="idle",
         )
+
+
+def _upload_parts_dir() -> Path:
+    path = Path(settings.upload_dir).parent / "upload_parts"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def start_upload_session(*, filename: str, duration_label: str, content_type: str, current_user: UserProfile) -> dict[str, str | int]:
+    normalized = (filename or "").strip()
+    if not normalized:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="缺少音频文件名")
+
+    upload_id = uuid.uuid4().hex
+    session_dir = _upload_parts_dir() / upload_id
+    session_dir.mkdir(parents=True, exist_ok=True)
+    meta = {
+        "user_id": int(current_user.id),
+        "filename": normalized,
+        "duration_label": duration_label or "--:--",
+        "content_type": content_type or "application/octet-stream",
+    }
+    (session_dir / "meta.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+    return {"upload_id": upload_id, "filename": normalized}
+
+
+def upload_meeting_chunk(
+    *,
+    upload_id: str,
+    chunk_index: int,
+    total_chunks: int,
+    file: UploadFile,
+    current_user: UserProfile,
+) -> dict[str, int | str | bool]:
+    session_dir = _upload_parts_dir() / upload_id
+    meta_path = session_dir / "meta.json"
+    if not session_dir.exists() or not meta_path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="上传会话不存在")
+
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    if int(meta.get("user_id") or 0) != int(current_user.id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该上传会话")
+    if chunk_index < 0 or total_chunks <= 0 or chunk_index >= total_chunks:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="分片参数非法")
+
+    chunk_path = session_dir / f"chunk-{chunk_index:06d}.part"
+    try:
+        with chunk_path.open("wb") as target:
+            shutil.copyfileobj(file.file, target)
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="保存上传分片失败") from exc
+
+    uploaded = len(list(session_dir.glob("chunk-*.part")))
+    return {
+        "upload_id": upload_id,
+        "chunk_index": chunk_index,
+        "uploaded_chunks": uploaded,
+        "total_chunks": total_chunks,
+        "complete": uploaded >= total_chunks,
+    }
+
+
+def finalize_upload_session(*, upload_id: str, current_user: UserProfile) -> MeetingDetailResponse:
+    session_dir = _upload_parts_dir() / upload_id
+    meta_path = session_dir / "meta.json"
+    if not session_dir.exists() or not meta_path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="上传会话不存在")
+
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    if int(meta.get("user_id") or 0) != int(current_user.id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该上传会话")
+
+    chunk_paths = sorted(session_dir.glob("chunk-*.part"))
+    if not chunk_paths:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="没有可合并的上传分片")
+
+    filename = str(meta.get("filename") or "audio.bin")
+    duration_label = str(meta.get("duration_label") or "--:--")
+    content_type = str(meta.get("content_type") or "application/octet-stream")
+    upload_dir = Path(settings.upload_dir)
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    unique_name = f"{uuid.uuid4().hex}{Path(filename).suffix.lower()}"
+    saved_path = upload_dir / unique_name
+
+    try:
+        with saved_path.open("wb") as target:
+            for chunk_path in chunk_paths:
+                with chunk_path.open("rb") as src:
+                    shutil.copyfileobj(src, target)
+        detail = _create_meeting_from_saved_audio(
+            filename=filename,
+            saved_path=saved_path,
+            stored_filename=unique_name,
+            content_type=content_type,
+            duration_label=duration_label,
+            current_user=current_user,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="合并上传文件失败") from exc
+    finally:
+        shutil.rmtree(session_dir, ignore_errors=True)
+
+    return detail
 
 
 def list_meetings(current_user: UserProfile, query: str = "") -> list[MeetingListItem]:

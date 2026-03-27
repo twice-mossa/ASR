@@ -209,9 +209,9 @@ onBeforeUnmount(() => {
         :status-label="statusLabel"
         :description="headerDescription"
         :file-name="workspace.fileName"
-        :progress-completed="workspace.completedChunks"
-        :progress-total="workspace.totalChunks"
-        :progress-status="workspace.transcriptionStatus"
+        :progress-completed="workspace.uploading ? workspace.uploadProgress : workspace.completedChunks"
+        :progress-total="workspace.uploading ? 100 : workspace.totalChunks"
+        :progress-status="workspace.uploading ? 'uploading' : workspace.transcriptionStatus"
         @toggle-sidebar="sidebarOpen = true"
         @request-login="openLoginModal()"
       >

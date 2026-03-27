@@ -13,17 +13,64 @@ function authHeaders(token) {
     : {};
 }
 
-export async function createMeetingRecord({ token, file, durationLabel }) {
-  const formData = new FormData();
-  formData.append("filename", file.name);
-  formData.append("duration_label", durationLabel || "--:--");
-  formData.append("file", file);
+export async function createMeetingRecord({ token, file, durationLabel, onUploadProgress }) {
+  const chunkSize = 2 * 1024 * 1024;
+  const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
 
-  const { data } = await apiClient.post("/meetings", formData, {
+  const sessionForm = new FormData();
+  sessionForm.append("filename", file.name);
+  sessionForm.append("duration_label", durationLabel || "--:--");
+  sessionForm.append("content_type", file.type || "application/octet-stream");
+  const sessionResponse = await apiClient.post("/meetings/upload-sessions", sessionForm, {
     timeout: 0,
     headers: {
       ...authHeaders(token),
-      "Content-Type": "multipart/form-data",
+    },
+  });
+
+  const uploadId = sessionResponse.data.upload_id;
+  for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
+    const start = chunkIndex * chunkSize;
+    const end = Math.min(file.size, start + chunkSize);
+    const chunk = file.slice(start, end);
+    const chunkForm = new FormData();
+    chunkForm.append("chunk_index", String(chunkIndex));
+    chunkForm.append("total_chunks", String(totalChunks));
+    chunkForm.append("file", chunk, `${file.name}.part-${chunkIndex}`);
+
+    await apiClient.post(`/meetings/upload-sessions/${uploadId}/chunks`, chunkForm, {
+      timeout: 0,
+      headers: {
+        ...authHeaders(token),
+      },
+      onUploadProgress: (event) => {
+        if (!onUploadProgress) {
+          return;
+        }
+        const chunkLoaded = Number(event?.loaded) || 0;
+        onUploadProgress({
+          loaded: Math.min(file.size, start + chunkLoaded),
+          total: file.size,
+          chunkIndex: chunkIndex + 1,
+          totalChunks,
+        });
+      },
+    });
+
+    if (onUploadProgress) {
+      onUploadProgress({
+        loaded: end,
+        total: file.size,
+        chunkIndex: chunkIndex + 1,
+        totalChunks,
+      });
+    }
+  }
+
+  const { data } = await apiClient.post(`/meetings/upload-sessions/${uploadId}/complete`, null, {
+    timeout: 0,
+    headers: {
+      ...authHeaders(token),
     },
   });
   return data;
@@ -57,9 +104,6 @@ export async function transcribeMeeting(file) {
 
   const { data } = await apiClient.post("/transcribe", formData, {
     timeout: 0,
-    headers: {
-      "Content-Type": "multipart/form-data",
-    },
   });
   return data;
 }
@@ -70,9 +114,6 @@ export async function startTranscriptionJob(file) {
 
   const { data } = await apiClient.post("/transcribe/jobs", formData, {
     timeout: 0,
-    headers: {
-      "Content-Type": "multipart/form-data",
-    },
   });
   return data;
 }
